@@ -13,8 +13,13 @@ pub struct Specification {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Entrypoint {
+    #[serde(default)]
     pub trigger: Trigger,
+
+    #[serde(default = "Arg::default_vec")]
     pub args: Vec<Arg>,
+
+    #[serde(default)]
     pub permissions: HashSet<Permissions>,
 }
 
@@ -25,8 +30,14 @@ pub enum Trigger {
     Pipe(String),
 }
 
+impl Default for Trigger {
+    fn default() -> Self {
+        Self::Startup
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
+// #[serde(tag = "type")]
 pub enum Arg {
     /// The binary name, or argv[0], of the original program start
     BinaryName,
@@ -39,6 +50,12 @@ pub enum Arg {
 
     /// The rest of argv[1..], 0 or more arguments
     Trailing,
+}
+
+impl Arg {
+    fn default_vec() -> Vec<Arg> {
+        vec![Arg::BinaryName]
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -74,7 +91,7 @@ impl Specification {
         let mut read = Vec::new();
         let mut write = Vec::new();
 
-        for (_, entry) in &self.entrypoints {
+        for entry in self.entrypoints.values() {
             match &entry.trigger {
                 Trigger::Startup => {}
                 Trigger::Pipe(s) => read.push(s.as_str()),
@@ -120,7 +137,7 @@ impl Specification {
             }
         }
 
-        for pipe in write_set {
+        if let Some(pipe) = write_set.into_iter().next() {
             return Err(Error::WriteOnlyPipe(pipe.to_string()));
         }
 

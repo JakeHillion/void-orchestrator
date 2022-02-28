@@ -1,0 +1,16 @@
+{
+    "entrypoints": {
+        "main1": {
+            "args": [
+                "BinaryName",
+                "Entrypoint"
+            ]
+        },
+        "main2": {
+            "args": [
+                "BinaryName",
+                "Entrypoint"
+            ]
+        }
+    }
+}

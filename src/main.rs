@@ -6,7 +6,7 @@ mod specification;
 
 use clone::{clone3, CloneArgs, CloneFlags};
 use error::Error;
-use specification::{Arg, Entrypoint, Pipe, Specification, Trigger};
+use specification::{Arg, Pipe, Specification, Trigger};
 
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -132,11 +132,11 @@ fn run() -> Result<(), Error> {
                     })?;
                 }
             }
-            Trigger::Pipe(s) => {}
+            Trigger::Pipe(_s) => {
+                todo!()
+            }
         }
     }
 
     Ok(())
 }
-
-pub fn pipe_trigger(pipe: File, entry: &Entrypoint) {}

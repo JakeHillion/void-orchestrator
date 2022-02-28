@@ -1,4 +1,3 @@
 {
-    "editor.formatOnSave": true,
-    "editor.defaultFormatter": "rust-lang.rust"
+    "editor.formatOnSave": true
 }
