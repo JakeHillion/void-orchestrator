@@ -16,6 +16,9 @@ pub enum Error {
     #[error("bad specification type: only .json files are supported")]
     BadSpecType,
 
+    #[error("bad pipe trigger: this entrypoint is not triggered by a pipe")]
+    BadPipeTrigger,
+
     #[error("too many pipes: a pipe must have one reader and one writer: {0}")]
     TooManyPipes(String),
 

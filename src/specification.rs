@@ -1,3 +1,5 @@
+use log::debug;
+
 use crate::Error;
 
 use std::collections::{HashMap, HashSet};
@@ -20,11 +22,10 @@ pub struct Entrypoint {
     pub args: Vec<Arg>,
 
     #[serde(default)]
-    pub permissions: HashSet<Permissions>,
+    pub permissions: HashSet<Permission>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
 pub enum Trigger {
     Startup,
     Pipe(String),
@@ -36,7 +37,7 @@ impl Default for Trigger {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 // #[serde(tag = "type")]
 pub enum Arg {
     /// The binary name, or argv[0], of the original program start
@@ -48,6 +49,13 @@ pub enum Arg {
     /// A chosen end of a named pipe
     Pipe(Pipe),
 
+    /// The value of a pipe trigger
+    /// NOTE: Only valid if the trigger is of type Pipe(...)
+    PipeTrigger,
+
+    /// A TCP Listener
+    TcpListener { port: u16 },
+
     /// The rest of argv[1..], 0 or more arguments
     Trailing,
 }
@@ -58,16 +66,14 @@ impl Arg {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum Pipe {
     Rx(String),
     Tx(String),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(tag = "type")]
-pub enum Permissions {
+pub enum Permission {
     Filesystem {
         host_path: PathBuf,
         final_path: PathBuf,
@@ -75,10 +81,10 @@ pub enum Permissions {
     Network {
         network: Network,
     },
+    PropagateFiles,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(tag = "type")]
 pub enum Network {
     InternetV4,
     InternetV6,
@@ -98,18 +104,17 @@ impl Specification {
             }
 
             for arg in &entry.args {
-                match arg {
-                    Arg::BinaryName => {}
-                    Arg::Entrypoint => {}
-                    Arg::Pipe(p) => match p {
+                if let Arg::Pipe(p) = arg {
+                    match p {
                         Pipe::Rx(s) => read.push(s.as_str()),
                         Pipe::Tx(s) => write.push(s.as_str()),
-                    },
-                    Arg::Trailing => {}
+                    }
                 }
             }
         }
 
+        debug!("read pipes: {:?}", &read);
+        debug!("write pipes: {:?}", &write);
         (read, write)
     }
 
@@ -119,14 +124,14 @@ impl Specification {
         let mut read_set = HashSet::with_capacity(read.len());
 
         for pipe in read {
-            if read_set.insert(pipe) {
+            if !read_set.insert(pipe) {
                 return Err(Error::TooManyPipes(pipe.to_string()));
             }
         }
 
         let mut write_set = HashSet::with_capacity(write.len());
         for pipe in write {
-            if write_set.insert(pipe) {
+            if !write_set.insert(pipe) {
                 return Err(Error::TooManyPipes(pipe.to_string()));
             }
         }
@@ -139,6 +144,16 @@ impl Specification {
 
         if let Some(pipe) = write_set.into_iter().next() {
             return Err(Error::WriteOnlyPipe(pipe.to_string()));
+        }
+
+        // validate pipe trigger arguments make sense
+        for entrypoint in self.entrypoints.values() {
+            if entrypoint.args.contains(&Arg::PipeTrigger) {
+                match entrypoint.trigger {
+                    Trigger::Pipe(_) => {}
+                    _ => return Err(Error::BadPipeTrigger),
+                }
+            }
         }
 
         Ok(())

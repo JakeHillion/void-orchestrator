@@ -18,3 +18,5 @@ ipnetwork = "0.18"
 
 libc = "0.2.117"
 nix = "0.23.1"
+
+close_fds = "0.3.2"

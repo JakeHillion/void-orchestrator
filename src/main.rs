@@ -2,19 +2,20 @@ use log::{debug, error, info};
 
 mod clone;
 mod error;
+mod spawner;
 mod specification;
 
-use clone::{clone3, CloneArgs, CloneFlags};
 use error::Error;
-use specification::{Arg, Pipe, Specification, Trigger};
+use spawner::Spawner;
+use specification::Specification;
 
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::fs::File;
-use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::io::FromRawFd;
 
 use clap::{App, AppSettings};
-use nix::unistd::{self, Pid};
+use nix::fcntl::OFlag;
+use nix::unistd::{self};
 
 fn main() {
     std::process::exit(match run() {
@@ -78,65 +79,51 @@ fn run() -> Result<(), Error> {
 
     // create all the pipes
     let (pipes, _) = spec.pipes();
-    let mut read_pipes = HashMap::new();
-    let mut write_pipes = HashMap::new();
+    let pipes = create_pipes(pipes)?;
 
-    for pipe in pipes {
+    // spawn all processes
+    let spawner = Spawner {
+        spec: &spec,
+        pipes: &pipes,
+        binary,
+        trailing: &trailing,
+    };
+
+    spawner.spawn()?;
+
+    // TODO: Fix this dirty hack to prevent files dropping (and closing)
+    // switch to Option<File> and use a mut ref to take, then call
+    // IntoRawFd if used
+    std::thread::sleep(std::time::Duration::from_secs(10));
+
+    Ok(())
+}
+
+pub struct PipePair {
+    read: File,
+    write: File,
+}
+
+fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>, Error> {
+    let mut pipes = HashMap::new();
+
+    for pipe in names {
         info!("creating pipe pair `{}`", pipe);
 
-        let (read, write) = unistd::pipe().map_err(|e| Error::Nix {
-            msg: "pipe",
+        let (read, write) = unistd::pipe2(OFlag::O_DIRECT).map_err(|e| Error::Nix {
+            msg: "pipe2",
             src: e,
         })?;
 
         // safe to create files given the successful return of pipe(2)
-        read_pipes.insert(pipe.to_string(), unsafe { File::from_raw_fd(read) });
-        write_pipes.insert(pipe.to_string(), unsafe { File::from_raw_fd(write) });
+        pipes.insert(
+            pipe.to_string(),
+            PipePair {
+                read: unsafe { File::from_raw_fd(read) },
+                write: unsafe { File::from_raw_fd(write) },
+            },
+        );
     }
 
-    // spawn all processes
-    for (name, entry) in &spec.entrypoints {
-        info!("spawning entrypoint `{}`", name.as_str());
-
-        match &entry.trigger {
-            Trigger::Startup => {
-                if clone3(CloneArgs::new(CloneFlags::empty())).map_err(|e| Error::Nix {
-                    msg: "clone3",
-                    src: e,
-                })? == Pid::from_raw(0)
-                {
-                    let mut args = Vec::new();
-                    for arg in &entry.args {
-                        match arg {
-                            Arg::BinaryName => args.push(CString::new(binary).unwrap()),
-                            Arg::Entrypoint => args.push(CString::new(name.as_str()).unwrap()),
-                            Arg::Pipe(p) => args.push(match p {
-                                Pipe::Rx(s) => {
-                                    CString::new(read_pipes[s].as_raw_fd().to_string()).unwrap()
-                                }
-                                Pipe::Tx(s) => {
-                                    CString::new(write_pipes[s].as_raw_fd().to_string()).unwrap()
-                                }
-                            }),
-                            Arg::Trailing => {
-                                args.extend(trailing.iter().map(|s| CString::new(*s).unwrap()))
-                            }
-                        }
-                    }
-
-                    unistd::execv(&CString::new(binary).unwrap(), &args).map_err(|e| {
-                        Error::Nix {
-                            msg: "execv",
-                            src: e,
-                        }
-                    })?;
-                }
-            }
-            Trigger::Pipe(_s) => {
-                todo!()
-            }
-        }
-    }
-
-    Ok(())
+    Ok(pipes)
 }

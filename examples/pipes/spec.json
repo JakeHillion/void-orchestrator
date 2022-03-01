@@ -1,0 +1,25 @@
+{
+    "entrypoints": {
+        "pipe_sender": {
+            "args": [
+                "BinaryName",
+                "Entrypoint",
+                {
+                    "Pipe": {
+                        "Tx": "messages"
+                    }
+                }
+            ]
+        },
+        "pipe_receiver": {
+            "trigger": {
+                "Pipe": "messages"
+            },
+            "args": [
+                "BinaryName",
+                "Entrypoint",
+                "PipeTrigger"
+            ]
+        }
+    }
+}
