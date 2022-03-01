@@ -1,0 +1,30 @@
+{
+    "entrypoints": {
+        "connection_listener": {
+            "args": [
+                "BinaryName",
+                "Entrypoint",
+                {
+                    "TcpListener": {
+                        "port": 8080
+                    }
+                },
+                {
+                    "Pipe": {
+                        "Tx": "clients"
+                    }
+                }
+            ]
+        },
+        "request_handler": {
+            "trigger": {
+                "Pipe": "clients"
+            },
+            "args": [
+                "BinaryName",
+                "Entrypoint",
+                "PipeTrigger"
+            ]
+        }
+    }
+}
