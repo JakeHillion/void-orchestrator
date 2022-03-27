@@ -69,26 +69,32 @@ pub fn run() -> Result<(), Error> {
     let pipes = create_pipes(pipes)?;
 
     // spawn all processes
-    let spawner = Spawner {
+    Spawner {
         spec: &spec,
-        pipes: &pipes,
+        pipes,
         binary,
         trailing: &trailing,
-    };
-
-    spawner.spawn()?;
-
-    // TODO: Fix this dirty hack to prevent files dropping (and closing)
-    // switch to Option<File> and use a mut ref to take, then call
-    // IntoRawFd if used
-    std::thread::sleep(std::time::Duration::from_secs(10));
-
-    Ok(())
+    }
+    .spawn()
 }
 
 pub struct PipePair {
-    read: File,
-    write: File,
+    read: Option<File>,
+    write: Option<File>,
+}
+
+impl PipePair {
+    fn take_read(&mut self) -> File {
+        self.read
+            .take()
+            .expect("read pipes should only be used once")
+    }
+
+    fn take_write(&mut self) -> File {
+        self.write
+            .take()
+            .expect("write pipes should only be used once")
+    }
 }
 
 fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>, Error> {
@@ -106,8 +112,8 @@ fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>, Error> {
         pipes.insert(
             pipe.to_string(),
             PipePair {
-                read: unsafe { File::from_raw_fd(read) },
-                write: unsafe { File::from_raw_fd(write) },
+                read: Some(unsafe { File::from_raw_fd(read) }),
+                write: Some(unsafe { File::from_raw_fd(write) }),
             },
         );
     }
