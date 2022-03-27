@@ -4,6 +4,7 @@ pub mod clone;
 mod error;
 mod spawner;
 mod specification;
+mod void;
 
 use error::Error;
 use spawner::Spawner;

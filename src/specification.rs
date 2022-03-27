@@ -20,9 +20,6 @@ pub struct Entrypoint {
 
     #[serde(default = "Arg::default_vec")]
     pub args: Vec<Arg>,
-
-    #[serde(default)]
-    pub permissions: HashSet<Permission>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

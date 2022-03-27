@@ -1,8 +1,8 @@
 use log::{debug, error, info};
 
-use super::specification::{Arg, Entrypoint, Permission, Pipe, Specification, Trigger};
+use super::specification::{Arg, Entrypoint, Pipe, Specification, Trigger};
 use super::PipePair;
-use crate::clone::{clone3, CloneArgs, CloneFlags};
+use crate::void::VoidBuilder;
 use crate::Error;
 
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use std::io::Read;
 use std::os::unix::io::AsRawFd;
 
 use close_fds::CloseFdsBuilder;
-use nix::unistd::{self, Pid};
+use nix::unistd;
 
 const BUFFER_SIZE: usize = 1024;
 
@@ -30,34 +30,30 @@ impl<'a> Spawner<'a> {
 
             match &entrypoint.trigger {
                 Trigger::Startup => {
-                    if clone3(CloneArgs::new(Self::clone_flags(
-                        &mut entrypoint.permissions.iter(),
-                    )))
-                    .map_err(|e| Error::Nix {
-                        msg: "clone3",
-                        src: e,
-                    })? == Pid::from_raw(0)
-                    {
+                    let closure = || {
                         let args = self.prepare_args(name, &entrypoint.args, None);
 
-                        unistd::execv(&CString::new(self.binary).unwrap(), &args).map_err(|e| {
-                            Error::Nix {
+                        if let Err(e) = unistd::execv(&CString::new(self.binary).unwrap(), &args)
+                            .map_err(|e| Error::Nix {
                                 msg: "execv",
                                 src: e,
-                            }
-                        })?;
-                    }
+                            })
+                        {
+                            error!("error: {}", e);
+                            1
+                        } else {
+                            0
+                        }
+                    };
+
+                    let mut builder = VoidBuilder::new();
+                    builder.spawn(closure)?;
                 }
 
                 Trigger::Pipe(s) => {
-                    // take the pipe in the initiating thread so the File isn't dropped
                     let pipe = self.pipes.get_mut(s).unwrap().take_read();
 
-                    if clone3(CloneArgs::new(CloneFlags::empty())).map_err(|e| Error::Nix {
-                        msg: "clone3",
-                        src: e,
-                    })? == Pid::from_raw(0)
-                    {
+                    let closure = || {
                         let mut closer = CloseFdsBuilder::new();
                         let keep = [pipe.as_raw_fd()];
                         closer.keep_fds(&keep);
@@ -72,7 +68,10 @@ impl<'a> Spawner<'a> {
                                 std::process::exit(1)
                             }
                         }
-                    }
+                    };
+
+                    let mut builder = VoidBuilder::new();
+                    builder.spawn(closure)?;
                 }
             }
         }
@@ -85,31 +84,32 @@ impl<'a> Spawner<'a> {
 
         loop {
             let read_bytes = pipe.read(&mut buf)?;
-
             if read_bytes == 0 {
                 return Ok(());
             }
 
             debug!("triggering from pipe read");
 
-            if clone3(CloneArgs::new(Self::clone_flags(
-                &mut spec.permissions.iter(),
-            )))
-            .map_err(|e| Error::Nix {
-                msg: "clone3",
-                src: e,
-            })? == Pid::from_raw(0)
-            {
-                let pipe_trigger = std::str::from_utf8(&buf[0..read_bytes]).unwrap();
-                let args = self.prepare_args_ref(name, &spec.args, Some(pipe_trigger));
+            let closure =
+                || {
+                    let pipe_trigger = std::str::from_utf8(&buf[0..read_bytes]).unwrap();
+                    let args = self.prepare_args_ref(name, &spec.args, Some(pipe_trigger));
 
-                unistd::execv(&CString::new(self.binary).unwrap(), &args).map_err(|e| {
-                    Error::Nix {
-                        msg: "execv",
-                        src: e,
+                    if let Err(e) = unistd::execv(&CString::new(self.binary).unwrap(), &args)
+                        .map_err(|e| Error::Nix {
+                            msg: "execv",
+                            src: e,
+                        })
+                    {
+                        error!("error: {}", e);
+                        1
+                    } else {
+                        0
                     }
-                })?;
-            }
+                };
+
+            let mut builder = VoidBuilder::new();
+            builder.spawn(closure)?;
         }
     }
 
@@ -179,26 +179,5 @@ impl<'a> Spawner<'a> {
         }
 
         out
-    }
-
-    fn clone_flags(perms: &mut dyn Iterator<Item = &Permission>) -> CloneFlags {
-        let mut flags = CloneFlags::empty();
-
-        flags |= CloneFlags::CLONE_NEWCGROUP; // new cgroup namespace
-        flags |= CloneFlags::CLONE_NEWIPC; // new IPC namespace
-        flags |= CloneFlags::CLONE_NEWNET; // new empty network namespace
-        flags |= CloneFlags::CLONE_NEWNS; // new separate mount namespace
-        flags |= CloneFlags::CLONE_NEWPID; // new PID namespace
-        flags |= CloneFlags::CLONE_NEWUSER; // new user namespace
-        flags |= CloneFlags::CLONE_NEWUTS; // new UTS namespace
-
-        for perm in perms {
-            match perm {
-                Permission::PropagateFiles => flags |= CloneFlags::CLONE_FILES,
-                _ => unimplemented!(),
-            }
-        }
-
-        flags
     }
 }
