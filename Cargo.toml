@@ -20,3 +20,10 @@ libc = "0.2.117"
 nix = "0.23.1"
 
 close_fds = "0.3.2"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "clone3"
+harness = false
