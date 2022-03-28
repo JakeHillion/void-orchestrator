@@ -1,0 +1,46 @@
+---
+kind: pipeline
+type: docker
+name: default
+
+steps:
+  - name: vendor
+    image: rust:1.59
+    commands:
+      - mkdir .cargo
+      - cargo vendor > .cargo/config
+
+  - name: format
+    image: rust:1.59
+    commands:
+      - rustup component add rustfmt
+      - cargo fmt --all -- --check
+    depends_on:
+      - vendor
+
+  - name: lint
+    image: rust:1.59
+    commands:
+      - rustup component add clippy
+      - cargo clippy --quiet --target-dir target_clippy/ --all-targets -- -D warnings
+    depends_on:
+      - vendor
+  
+  - name: test
+    image: rust:1.59
+    commands:
+      - cargo test --target-dir target_test/
+    depends_on:
+      - vendor
+
+  - name: build
+    image: rust:1.59
+    commands:
+      - cargo build
+    depends_on:
+      - vendor
+---
+kind: signature
+hmac: 5ca217a3f270ccd57de3f1d3b980dff7f0a4d9d742eaf1c1478a887c12eee321
+
+...
