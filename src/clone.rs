@@ -10,25 +10,17 @@ use nix::unistd::Pid;
 
 pub struct CloneArgs<'a> {
     pub flags: CloneFlags,
-
-    pub pidfd: Option<&'a mut File>,
-    pidfd_int: RawFd,
-
-    pub child_tid: Option<&'a mut Pid>,
-    child_tid_int: pid_t,
-
-    pub parent_tid: Option<&'a mut Pid>,
-    parent_tid_int: pid_t,
-
+    pub pidfd: Option<&'a mut Option<File>>,
+    pub child_tid: Option<&'a mut Option<Pid>>,
+    pub parent_tid: Option<&'a mut Option<Pid>>,
     pub exit_signal: Option<Signal>,
-
     pub stack: Option<&'a mut [u8]>,
     pub set_tid: Option<&'a [Pid]>,
     pub cgroup: Option<&'a File>,
 }
 
 #[repr(C)]
-struct CloneArgsInternal<'a> {
+struct CloneArgsFfi<'a> {
     flags: u64,
     pidfd: u64,
     child_tid: u64,
@@ -50,13 +42,9 @@ impl<'a: 'b, 'b: 'c, 'c> CloneArgs<'a> {
             flags,
 
             pidfd: None,
-            pidfd_int: 0,
 
             child_tid: None,
-            child_tid_int: 0,
-
             parent_tid: None,
-            parent_tid_int: 0,
 
             exit_signal: None,
 
@@ -66,23 +54,28 @@ impl<'a: 'b, 'b: 'c, 'c> CloneArgs<'a> {
         }
     }
 
-    fn process(&'b mut self) -> CloneArgsInternal<'c> {
-        CloneArgsInternal {
+    fn process(
+        &'b mut self,
+        pidfd: &mut RawFd,
+        child_tid: &mut pid_t,
+        parent_tid: &mut pid_t,
+    ) -> CloneArgsFfi<'c> {
+        CloneArgsFfi {
             flags: self.flags.bits() as u64,
             pidfd: self
                 .pidfd
                 .as_ref()
-                .map(|_| (self.pidfd_int) as *mut RawFd as u64)
+                .map(|_| pidfd as *mut RawFd as u64)
                 .unwrap_or(0),
             child_tid: self
                 .child_tid
                 .as_ref()
-                .map(|_| self.child_tid_int as *mut pid_t as u64)
+                .map(|_| child_tid as *mut pid_t as u64)
                 .unwrap_or(0),
             parent_tid: self
                 .parent_tid
                 .as_ref()
-                .map(|_| self.parent_tid_int as *mut pid_t as u64)
+                .map(|_| parent_tid as *mut pid_t as u64)
                 .unwrap_or(0),
             exit_signal: self.exit_signal.map(|s| s as i32 as u64).unwrap_or(0),
             stack: self
@@ -104,27 +97,33 @@ impl<'a: 'b, 'b: 'c, 'c> CloneArgs<'a> {
         }
     }
 
-    fn finalise(&mut self) {
+    unsafe fn finalise(&mut self, pidfd: RawFd, child_tid: pid_t, parent_tid: pid_t) {
         if let Some(r) = &mut self.pidfd {
-            **r = unsafe { File::from_raw_fd(self.pidfd_int) };
+            **r = Some(File::from_raw_fd(pidfd));
         }
         if let Some(r) = &mut self.child_tid {
-            **r = Pid::from_raw(self.child_tid_int);
+            **r = Some(Pid::from_raw(child_tid));
         }
         if let Some(r) = &mut self.parent_tid {
-            **r = Pid::from_raw(self.parent_tid_int);
+            **r = Some(Pid::from_raw(parent_tid));
         }
     }
 }
 
 pub fn clone3(mut args: CloneArgs) -> nix::Result<Pid> {
-    let args_int: CloneArgsInternal = args.process();
+    let mut pidfd: RawFd = 0;
+    let mut child_tid: pid_t = 0;
+    let mut parent_tid: pid_t = 0;
 
-    let result = unsafe { syscall(SYS_clone3, &args_int, std::mem::size_of_val(&args_int)) };
+    let args_ffi: CloneArgsFfi = args.process(&mut pidfd, &mut child_tid, &mut parent_tid);
+    let result = unsafe { syscall(SYS_clone3, &args_ffi, std::mem::size_of_val(&args_ffi)) };
 
     let out = Errno::result(result).map(|p| Pid::from_raw(p as i32))?;
 
-    args.finalise();
+    // SAFETY: requested things have been filled by the kernel so are now valid for their type
+    unsafe {
+        args.finalise(pidfd, child_tid, parent_tid);
+    }
 
     Ok(out)
 }
