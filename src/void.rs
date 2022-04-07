@@ -1,3 +1,5 @@
+use log::{debug, error};
+
 use crate::clone::{clone3, CloneArgs, CloneFlags};
 use crate::{Error, Result};
 
@@ -5,7 +7,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use nix::mount::{mount, umount, MsFlags};
+use nix::mount::{mount, umount2, MntFlags, MsFlags};
+use nix::sched::unshare;
 use nix::sys::signal::Signal;
 use nix::unistd::{pivot_root, Pid};
 
@@ -36,7 +39,6 @@ impl VoidBuilder {
                 | CloneFlags::CLONE_NEWNET
                 | CloneFlags::CLONE_NEWNS
                 | CloneFlags::CLONE_NEWPID
-                | CloneFlags::CLONE_NEWUSER
                 | CloneFlags::CLONE_NEWUTS,
         );
         args.exit_signal = Some(Signal::SIGCHLD);
@@ -47,10 +49,22 @@ impl VoidBuilder {
         })?;
 
         if child == Pid::from_raw(0) {
-            self.newns_post().unwrap();
+            let result = {
+                self.void_mount_namespace()?;
+                self.void_user_namespace()?; // last to maintain permissions
 
-            std::process::exit(child_fn())
+                Ok::<(), Error>(())
+            };
+
+            if let Err(e) = result {
+                error!("error preparing void: {}", e);
+                std::process::exit(-1)
+            } else {
+                std::process::exit(child_fn())
+            }
         }
+
+        debug!("cloned child: {}", child);
 
         // Leak the child function's resources in the parent process.
         // This avoids closing files that have been "moved" into the child.
@@ -63,12 +77,26 @@ impl VoidBuilder {
     }
 
     // per-namespace void creation
-    fn newns_post(&self) -> Result<()> {
-        // consume the TempDir so it doesn't get deleted
-        let new_root = tempfile::tempdir()?.into_path();
-
+    fn void_mount_namespace(&self) -> Result<()> {
+        // change the propagation type of the old root to private
         mount(
             Option::<&str>::None,
+            "/",
+            Option::<&str>::None,
+            MsFlags::MS_PRIVATE,
+            Option::<&str>::None,
+        )
+        .map_err(|e| Error::Nix {
+            msg: "mount",
+            src: e,
+        })?;
+
+        // create and consume a tmpdir to mount a tmpfs into
+        let new_root = tempfile::tempdir()?.into_path();
+
+        // mount a tmpfs as the new root
+        mount(
+            Some("tmpfs"),
             &new_root,
             Some("tmpfs"),
             MsFlags::empty(),
@@ -79,19 +107,37 @@ impl VoidBuilder {
             src: e,
         })?;
 
-        // TODO: Mount mounts
+        // prepare a subdirectory to pivot the old root into
+        let put_old = new_root.join("old_root/");
+        debug!("new_root: {:?}; put_old: {:?}", &new_root, &put_old);
+        fs::create_dir(&put_old)?;
 
-        let old_root = new_root.join("old_root/");
-        fs::create_dir(&old_root)?;
-
-        pivot_root(&new_root, &old_root).map_err(|e| Error::Nix {
+        // pivot the old root into a subdirectory of the new root
+        pivot_root(&new_root, &put_old).map_err(|e| Error::Nix {
             msg: "pivot_root",
             src: e,
         })?;
+
+        // chdir after
         std::env::set_current_dir("/")?;
 
-        umount("old_root/").map_err(|e| Error::Nix {
-            msg: "umount",
+        // TODO: mount requested mounts
+
+        // unmount the old root
+        umount2("old_root/", MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
+            msg: "umount2",
+            src: e,
+        })?;
+
+        // delete the old root mount point
+        fs::remove_dir("old_root/")?;
+
+        Ok(())
+    }
+
+    fn void_user_namespace(&self) -> Result<()> {
+        unshare(CloneFlags::CLONE_NEWUSER).map_err(|e| Error::Nix {
+            msg: "unshare",
             src: e,
         })?;
 

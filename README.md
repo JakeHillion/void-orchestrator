@@ -8,8 +8,9 @@ The basic example instructs the shim to spawn two processes, each of which write
 
 To run this example:
 
+    cargo build
     cargo build --example basic
-    cargo run -- -s examples/basic/spec.json target/debug/examples/basic
+    sudo target/debug/clone-shim -s examples/basic/spec.json target/debug/examples/basic
 
 ### examples/pipes
 
@@ -17,5 +18,6 @@ The pipes example shows some of the power of the shim by using pipes. The proces
 
 To run this example:
 
+    cargo build
     cargo build --example pipes
-    cargo run -- -s examples/pipes/spec.json target/debug/examples/pipes
+    sudo target/debug/clone-shim -s examples/pipes/spec.json target/debug/examples/pipes
