@@ -25,8 +25,14 @@ pub struct Entrypoint {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Trigger {
+    /// Start this entrypoint at application startup
     Startup,
+
+    /// Trigger this entrypoint when a named pipe receives data
     Pipe(String),
+
+    /// Trigger this entrypoint when a named file socket receives data
+    FileSocket(String),
 }
 
 impl Default for Trigger {
@@ -36,7 +42,6 @@ impl Default for Trigger {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-// #[serde(tag = "type")]
 pub enum Arg {
     /// The binary name, or argv[0], of the original program start
     BinaryName,
@@ -44,11 +49,17 @@ pub enum Arg {
     /// The name of this entrypoint
     Entrypoint,
 
+    /// A file descriptor for a file on the filesystem in the launching namespace
+    File(PathBuf),
+
     /// A chosen end of a named pipe
     Pipe(Pipe),
 
+    /// File socket
+    FileSocket(FileSocket),
+
     /// A value specified by the trigger
-    /// NOTE: Only valid if the trigger is of type Pipe(...)
+    /// NOTE: Only valid if the trigger is of type Pipe(...) or FileSocket(...)
     Trigger,
 
     /// A TCP Listener
@@ -79,6 +90,21 @@ impl Pipe {
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum FileSocket {
+    Rx(String),
+    Tx(String),
+}
+
+impl FileSocket {
+    pub fn get_name(&self) -> &str {
+        match self {
+            FileSocket::Rx(n) => n,
+            FileSocket::Tx(n) => n,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub enum Permission {
     Filesystem {
@@ -105,9 +131,8 @@ impl Specification {
         let mut write = Vec::new();
 
         for entry in self.entrypoints.values() {
-            match &entry.trigger {
-                Trigger::Startup => {}
-                Trigger::Pipe(s) => read.push(s.as_str()),
+            if let Trigger::Pipe(s) = &entry.trigger {
+                read.push(s.as_str());
             }
 
             for arg in &entry.args {
@@ -122,6 +147,30 @@ impl Specification {
 
         debug!("read pipes: {:?}", &read);
         debug!("write pipes: {:?}", &write);
+        (read, write)
+    }
+
+    pub fn sockets(&self) -> (Vec<&str>, Vec<&str>) {
+        let mut read = Vec::new();
+        let mut write = Vec::new();
+
+        for entry in self.entrypoints.values() {
+            if let Trigger::FileSocket(s) = &entry.trigger {
+                read.push(s.as_str());
+            }
+
+            for arg in &entry.args {
+                if let Arg::FileSocket(p) = arg {
+                    match p {
+                        FileSocket::Rx(s) => read.push(s.as_str()),
+                        FileSocket::Tx(s) => write.push(s.as_str()),
+                    }
+                }
+            }
+        }
+
+        debug!("read sockets: {:?}", &read);
+        debug!("write sockets: {:?}", &write);
         (read, write)
     }
 
@@ -153,11 +202,12 @@ impl Specification {
             return Err(Error::BadPipe(pipe.to_string()));
         }
 
-        // validate pipe trigger arguments make sense
+        // validate trigger arguments make sense
         for entrypoint in self.entrypoints.values() {
             if entrypoint.args.contains(&Arg::Trigger) {
                 match entrypoint.trigger {
                     Trigger::Pipe(_) => {}
+                    Trigger::FileSocket(_) => {}
                     _ => return Err(Error::BadTriggerArgument),
                 }
             }

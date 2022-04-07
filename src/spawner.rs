@@ -1,7 +1,7 @@
 use log::{debug, error, info};
 
-use super::specification::{Arg, Entrypoint, Pipe, Specification, Trigger};
-use super::PipePair;
+use super::specification::{Arg, Entrypoint, FileSocket, Pipe, Specification, Trigger};
+use super::{PipePair, SocketPair};
 use crate::void::VoidBuilder;
 use crate::{Error, Result};
 
@@ -10,18 +10,21 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
 use std::net::TcpListener;
-use std::os::unix::io::IntoRawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::path::PathBuf;
 
+use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::unistd;
 
 const BUFFER_SIZE: usize = 1024;
 
 pub struct Spawner<'a> {
     pub spec: &'a Specification,
-    pub pipes: HashMap<String, PipePair>,
     pub binary: &'a str,
     pub trailing: &'a Vec<&'a str>,
+
+    pub pipes: HashMap<String, PipePair>,
+    pub sockets: HashMap<String, SocketPair>,
 }
 
 enum TriggerData<'a> {
@@ -30,6 +33,9 @@ enum TriggerData<'a> {
 
     /// A string sent across a pipe
     Pipe(&'a str),
+
+    /// File(s) sent over a file socket
+    FileSocket(Vec<File>),
 }
 
 impl<'a> TriggerData<'a> {
@@ -37,6 +43,10 @@ impl<'a> TriggerData<'a> {
         match self {
             TriggerData::None => vec![],
             TriggerData::Pipe(s) => vec![CString::new(s.to_string()).unwrap()],
+            TriggerData::FileSocket(fs) => fs
+                .drain(..)
+                .map(|f| CString::new(f.into_raw_fd().to_string()).unwrap())
+                .collect(),
         }
     }
 }
@@ -75,7 +85,7 @@ impl<'a> Spawner<'a> {
                 }
 
                 Trigger::Pipe(s) => {
-                    let pipe = self.pipes.get_mut(s).unwrap().take_read().unwrap();
+                    let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
                     let binary = PathBuf::from(self.binary).canonicalize()?;
 
                     let mut builder = VoidBuilder::new();
@@ -92,6 +102,25 @@ impl<'a> Spawner<'a> {
 
                     builder.spawn(closure)?;
                 }
+
+                Trigger::FileSocket(s) => {
+                    let socket = self.sockets.get_mut(s).unwrap().take_read()?;
+                    let binary = PathBuf::from(self.binary).canonicalize()?;
+
+                    let mut builder = VoidBuilder::new();
+                    builder.mount(binary, "/entrypoint");
+                    builder.keep_fd(&socket);
+
+                    let closure = || match self.file_socket_trigger(socket, entrypoint, name) {
+                        Ok(()) => std::process::exit(exitcode::OK),
+                        Err(e) => {
+                            error!("error in file_socket_trigger: {}", e);
+                            std::process::exit(1)
+                        }
+                    };
+
+                    builder.spawn(closure)?;
+                }
             }
         }
 
@@ -100,7 +129,6 @@ impl<'a> Spawner<'a> {
 
     fn pipe_trigger(&self, mut pipe: File, spec: &Entrypoint, name: &str) -> Result<()> {
         let mut buf = [0_u8; BUFFER_SIZE];
-
         loop {
             let read_bytes = pipe.read(&mut buf)?;
             if read_bytes == 0 {
@@ -108,6 +136,9 @@ impl<'a> Spawner<'a> {
             }
 
             debug!("triggering from pipe read");
+
+            let mut builder = VoidBuilder::new();
+            builder.mount("/entrypoint", "/entrypoint");
 
             let closure =
                 || {
@@ -129,8 +160,65 @@ impl<'a> Spawner<'a> {
                     }
                 };
 
-            let mut builder = VoidBuilder::new();
             builder.spawn(closure)?;
+        }
+    }
+
+    fn file_socket_trigger(&self, socket: File, spec: &Entrypoint, name: &str) -> Result<()> {
+        let mut buf = Vec::new();
+        loop {
+            let msg = recvmsg(socket.as_raw_fd(), &[], Some(&mut buf), MsgFlags::empty()).map_err(
+                |e| Error::Nix {
+                    msg: "recvmsg",
+                    src: e,
+                },
+            )?;
+
+            debug!("triggering from socket recvmsg");
+
+            for cmsg in msg.cmsgs() {
+                match cmsg {
+                    ControlMessageOwned::ScmRights(fds) => {
+                        let fds = fds
+                            .into_iter()
+                            .map(|fd| unsafe { File::from_raw_fd(fd) })
+                            .collect();
+
+                        let mut builder = VoidBuilder::new();
+                        builder.mount("/entrypoint", "/entrypoint");
+                        for fd in &fds {
+                            builder.keep_fd(fd);
+                        }
+
+                        let closure = || {
+                            let args = self
+                                .prepare_args_ref(
+                                    name,
+                                    &spec.args,
+                                    &mut TriggerData::FileSocket(fds),
+                                )
+                                .unwrap();
+
+                            if let Err(e) =
+                                unistd::execv(&CString::new("/entrypoint").unwrap(), &args).map_err(
+                                    |e| Error::Nix {
+                                        msg: "execv",
+                                        src: e,
+                                    },
+                                )
+                            {
+                                error!("error: {}", e);
+                                1
+                            } else {
+                                0
+                            }
+                        };
+
+                        builder.spawn(closure)?;
+                    }
+                    _ => unimplemented!(),
+                }
+            }
         }
     }
 
@@ -144,8 +232,10 @@ impl<'a> Spawner<'a> {
         for arg in args {
             out.extend(self.prepare_arg(entrypoint, arg, trigger)?);
         }
+
         Ok(out)
     }
+
     fn prepare_args_ref(
         &self,
         entrypoint: &str,
@@ -156,6 +246,7 @@ impl<'a> Spawner<'a> {
         for arg in args {
             out.extend(self.prepare_arg_ref(entrypoint, arg, trigger)?);
         }
+
         Ok(out)
     }
 
@@ -176,6 +267,18 @@ impl<'a> Spawner<'a> {
                     Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
                 }
             },
+
+            Arg::FileSocket(s) => match s {
+                FileSocket::Rx(s) => {
+                    let pipe = self.sockets.get_mut(s).unwrap().take_read()?;
+                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
+                }
+                FileSocket::Tx(s) => {
+                    let pipe = self.sockets.get_mut(s).unwrap().take_write()?;
+                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
+                }
+            },
+
             a => self.prepare_arg_ref(entrypoint, a, trigger),
         }
     }
@@ -191,6 +294,12 @@ impl<'a> Spawner<'a> {
             Arg::Entrypoint => Ok(vec![CString::new(entrypoint).unwrap()]),
 
             Arg::Pipe(p) => Err(Error::BadPipe(p.get_name().to_string())),
+            Arg::FileSocket(s) => Err(Error::BadFileSocket(s.get_name().to_string())),
+
+            Arg::File(p) => {
+                let f = File::open(p)?.into_raw_fd();
+                Ok(vec![CString::new(f.to_string()).unwrap()])
+            }
 
             Arg::Trigger => Ok(trigger.args()),
 

@@ -16,7 +16,8 @@ use std::os::unix::io::FromRawFd;
 
 use clap::{App, AppSettings};
 use nix::fcntl::OFlag;
-use nix::unistd::{self};
+use nix::sys::socket;
+use nix::unistd;
 
 pub fn run() -> Result<()> {
     // process arguments
@@ -69,12 +70,17 @@ pub fn run() -> Result<()> {
     let (pipes, _) = spec.pipes();
     let pipes = create_pipes(pipes)?;
 
+    let (sockets, _) = spec.sockets();
+    let sockets = create_sockets(sockets)?;
+
     // spawn all processes
     Spawner {
         spec: &spec,
-        pipes,
         binary,
         trailing: &trailing,
+
+        pipes,
+        sockets,
     }
     .spawn()
 }
@@ -87,6 +93,16 @@ fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>> {
     }
 
     Ok(pipes)
+}
+
+fn create_sockets(names: Vec<&str>) -> Result<HashMap<String, SocketPair>> {
+    let mut sockets = HashMap::new();
+    for socket in names {
+        info!("creating socket pair `{}`", socket);
+        sockets.insert(socket.to_string(), SocketPair::new(socket)?);
+    }
+
+    Ok(sockets)
 }
 
 pub struct PipePair {
@@ -105,6 +121,47 @@ impl PipePair {
 
         // safe to create files given the successful return of pipe(2)
         Ok(PipePair {
+            name: name.to_string(),
+            read: Some(unsafe { File::from_raw_fd(read) }),
+            write: Some(unsafe { File::from_raw_fd(write) }),
+        })
+    }
+
+    fn take_read(&mut self) -> Result<File> {
+        self.read
+            .take()
+            .ok_or_else(|| Error::BadPipe(self.name.to_string()))
+    }
+
+    fn take_write(&mut self) -> Result<File> {
+        self.write
+            .take()
+            .ok_or_else(|| Error::BadPipe(self.name.to_string()))
+    }
+}
+
+pub struct SocketPair {
+    name: String,
+
+    read: Option<File>,
+    write: Option<File>,
+}
+
+impl SocketPair {
+    fn new(name: &str) -> Result<SocketPair> {
+        let (read, write) = socket::socketpair(
+            socket::AddressFamily::Unix,
+            socket::SockType::Datagram,
+            None,
+            socket::SockFlag::empty(),
+        )
+        .map_err(|e| Error::Nix {
+            msg: "socketpair",
+            src: e,
+        })?;
+
+        // safe to create files given the successful return of socketpair(2)
+        Ok(SocketPair {
             name: name.to_string(),
             read: Some(unsafe { File::from_raw_fd(read) }),
             write: Some(unsafe { File::from_raw_fd(write) }),

@@ -18,6 +18,9 @@ pub enum Error {
     #[error("bad pipe specification: a pipe must have exactly one reader and one writer: {0}")]
     BadPipe(String),
 
+    #[error("bad socket specification: a socket must have exactly one reader and one writer: {0}")]
+    BadFileSocket(String),
+
     #[error("bad specification type: only .json files are supported")]
     BadSpecType,
 
