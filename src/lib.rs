@@ -6,7 +6,7 @@ mod spawner;
 mod specification;
 mod void;
 
-use error::Error;
+use error::{Error, Result};
 use spawner::Spawner;
 use specification::Specification;
 
@@ -18,7 +18,7 @@ use clap::{App, AppSettings};
 use nix::fcntl::OFlag;
 use nix::unistd::{self};
 
-pub fn run() -> Result<(), Error> {
+pub fn run() -> Result<()> {
     // process arguments
     let matches = App::new("clone-shim")
         .version(env!("GIT_HASH"))
@@ -98,7 +98,7 @@ impl PipePair {
     }
 }
 
-fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>, Error> {
+fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>> {
     let mut pipes = HashMap::new();
 
     for pipe in names {

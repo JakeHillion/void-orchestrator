@@ -1,6 +1,6 @@
 use log::debug;
 
-use crate::Error;
+use crate::{Error, Result};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -115,7 +115,7 @@ impl Specification {
         (read, write)
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&self) -> Result<()> {
         // validate pipes match
         let (read, write) = self.pipes();
         let mut read_set = HashSet::with_capacity(read.len());

@@ -3,7 +3,7 @@ use log::{debug, error, info};
 use super::specification::{Arg, Entrypoint, Pipe, Specification, Trigger};
 use super::PipePair;
 use crate::void::VoidBuilder;
-use crate::Error;
+use crate::{Error, Result};
 
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -24,7 +24,7 @@ pub struct Spawner<'a> {
 }
 
 impl<'a> Spawner<'a> {
-    pub fn spawn(&mut self) -> Result<(), Error> {
+    pub fn spawn(&mut self) -> Result<()> {
         for (name, entrypoint) in &self.spec.entrypoints {
             info!("spawning entrypoint `{}`", name.as_str());
 
@@ -79,7 +79,7 @@ impl<'a> Spawner<'a> {
         Ok(())
     }
 
-    fn pipe_trigger(&self, mut pipe: File, spec: &Entrypoint, name: &str) -> Result<(), Error> {
+    fn pipe_trigger(&self, mut pipe: File, spec: &Entrypoint, name: &str) -> Result<()> {
         let mut buf = [0_u8; BUFFER_SIZE];
 
         loop {

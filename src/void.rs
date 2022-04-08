@@ -1,5 +1,5 @@
 use crate::clone::{clone3, CloneArgs, CloneFlags};
-use crate::Error;
+use crate::{Error, Result};
 
 use std::collections::HashMap;
 use std::fs;
@@ -29,7 +29,7 @@ impl VoidBuilder {
         self
     }
 
-    pub fn spawn(&mut self, child_fn: impl FnOnce() -> i32) -> Result<VoidHandle, Error> {
+    pub fn spawn(&mut self, child_fn: impl FnOnce() -> i32) -> Result<VoidHandle> {
         let mut args = CloneArgs::new(
             CloneFlags::CLONE_NEWCGROUP
                 | CloneFlags::CLONE_NEWIPC
@@ -63,7 +63,7 @@ impl VoidBuilder {
     }
 
     // per-namespace void creation
-    fn newns_post(&self) -> Result<(), Error> {
+    fn newns_post(&self) -> Result<()> {
         // consume the TempDir so it doesn't get deleted
         let new_root = tempfile::tempdir()?.into_path();
 
