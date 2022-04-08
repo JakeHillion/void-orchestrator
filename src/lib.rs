@@ -79,45 +79,47 @@ pub fn run() -> Result<()> {
     .spawn()
 }
 
+fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>> {
+    let mut pipes = HashMap::new();
+    for pipe in names {
+        info!("creating pipe pair `{}`", pipe);
+        pipes.insert(pipe.to_string(), PipePair::new(pipe)?);
+    }
+
+    Ok(pipes)
+}
+
 pub struct PipePair {
+    name: String,
+
     read: Option<File>,
     write: Option<File>,
 }
 
 impl PipePair {
-    fn take_read(&mut self) -> File {
-        self.read
-            .take()
-            .expect("read pipes should only be used once")
-    }
-
-    fn take_write(&mut self) -> File {
-        self.write
-            .take()
-            .expect("write pipes should only be used once")
-    }
-}
-
-fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>> {
-    let mut pipes = HashMap::new();
-
-    for pipe in names {
-        info!("creating pipe pair `{}`", pipe);
-
+    fn new(name: &str) -> Result<PipePair> {
         let (read, write) = unistd::pipe2(OFlag::O_DIRECT).map_err(|e| Error::Nix {
             msg: "pipe2",
             src: e,
         })?;
 
         // safe to create files given the successful return of pipe(2)
-        pipes.insert(
-            pipe.to_string(),
-            PipePair {
-                read: Some(unsafe { File::from_raw_fd(read) }),
-                write: Some(unsafe { File::from_raw_fd(write) }),
-            },
-        );
+        Ok(PipePair {
+            name: name.to_string(),
+            read: Some(unsafe { File::from_raw_fd(read) }),
+            write: Some(unsafe { File::from_raw_fd(write) }),
+        })
     }
 
-    Ok(pipes)
+    fn take_read(&mut self) -> Result<File> {
+        self.read
+            .take()
+            .ok_or_else(|| Error::BadPipe(self.name.to_string()))
+    }
+
+    fn take_write(&mut self) -> Result<File> {
+        self.write
+            .take()
+            .ok_or_else(|| Error::BadPipe(self.name.to_string()))
+    }
 }

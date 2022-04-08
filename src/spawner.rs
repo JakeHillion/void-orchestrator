@@ -55,7 +55,7 @@ impl<'a> Spawner<'a> {
                 }
 
                 Trigger::Pipe(s) => {
-                    let pipe = self.pipes.get_mut(s).unwrap().take_read();
+                    let pipe = self.pipes.get_mut(s).unwrap().take_read().unwrap();
                     let binary = PathBuf::from(self.binary).canonicalize()?;
 
                     let mut builder = VoidBuilder::new();
@@ -126,11 +126,11 @@ impl<'a> Spawner<'a> {
 
                 Arg::Pipe(p) => out.push(match p {
                     Pipe::Rx(s) => {
-                        let pipe = self.pipes.get_mut(s).unwrap().take_read();
+                        let pipe = self.pipes.get_mut(s).unwrap().take_read().unwrap();
                         CString::new(pipe.as_raw_fd().to_string()).unwrap()
                     }
                     Pipe::Tx(s) => {
-                        let pipe = self.pipes.get_mut(s).unwrap().take_write();
+                        let pipe = self.pipes.get_mut(s).unwrap().take_write().unwrap();
                         CString::new(pipe.as_raw_fd().to_string()).unwrap()
                     }
                 }),

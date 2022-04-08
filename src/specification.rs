@@ -122,25 +122,25 @@ impl Specification {
 
         for pipe in read {
             if !read_set.insert(pipe) {
-                return Err(Error::TooManyPipes(pipe.to_string()));
+                return Err(Error::BadPipe(pipe.to_string()));
             }
         }
 
         let mut write_set = HashSet::with_capacity(write.len());
         for pipe in write {
             if !write_set.insert(pipe) {
-                return Err(Error::TooManyPipes(pipe.to_string()));
+                return Err(Error::BadPipe(pipe.to_string()));
             }
         }
 
         for pipe in read_set {
             if !write_set.remove(pipe) {
-                return Err(Error::ReadOnlyPipe(pipe.to_string()));
+                return Err(Error::BadPipe(pipe.to_string()));
             }
         }
 
         if let Some(pipe) = write_set.into_iter().next() {
-            return Err(Error::WriteOnlyPipe(pipe.to_string()));
+            return Err(Error::BadPipe(pipe.to_string()));
         }
 
         // validate pipe trigger arguments make sense
@@ -148,7 +148,7 @@ impl Specification {
             if entrypoint.args.contains(&Arg::PipeTrigger) {
                 match entrypoint.trigger {
                     Trigger::Pipe(_) => {}
-                    _ => return Err(Error::BadPipeTrigger),
+                    _ => return Err(Error::BadTriggerArgument),
                 }
             }
         }

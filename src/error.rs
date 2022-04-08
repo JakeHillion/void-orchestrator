@@ -15,18 +15,12 @@ pub enum Error {
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("bad pipe specification: a pipe must have exactly one reader and one writer: {0}")]
+    BadPipe(String),
+
     #[error("bad specification type: only .json files are supported")]
     BadSpecType,
 
-    #[error("bad pipe trigger: this entrypoint is not triggered by a pipe")]
-    BadPipeTrigger,
-
-    #[error("too many pipes: a pipe must have one reader and one writer: {0}")]
-    TooManyPipes(String),
-
-    #[error("read only pipe: a pipe must have one reader and one writer: {0}")]
-    ReadOnlyPipe(String),
-
-    #[error("write only pipe: a pipe must have one reader and one writer: {0}")]
-    WriteOnlyPipe(String),
+    #[error("bad trigger argument: this entrypoint is not triggered by something with arguments")]
+    BadTriggerArgument,
 }
