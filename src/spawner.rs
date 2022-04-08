@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
+use std::net::TcpListener;
 use std::os::unix::io::IntoRawFd;
 use std::path::PathBuf;
 
@@ -192,7 +193,14 @@ impl<'a> Spawner<'a> {
             Arg::Pipe(p) => Err(Error::BadPipe(p.get_name().to_string())),
 
             Arg::Trigger => Ok(trigger.args()),
-            Arg::TcpListener { port: _port } => unimplemented!(),
+
+            Arg::TcpListener { addr } => {
+                let listener = TcpListener::bind(addr)?;
+                let listener = listener.into_raw_fd();
+
+                Ok(vec![CString::new(listener.to_string()).unwrap()])
+            }
+
             Arg::Trailing => Ok(self
                 .trailing
                 .iter()

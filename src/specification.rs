@@ -3,6 +3,7 @@ use log::debug;
 use crate::{Error, Result};
 
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use ipnetwork::{Ipv4Network, Ipv6Network};
@@ -51,7 +52,7 @@ pub enum Arg {
     Trigger,
 
     /// A TCP Listener
-    TcpListener { port: u16 },
+    TcpListener { addr: SocketAddr },
 
     /// The rest of argv[1..], 0 or more arguments
     Trailing,
