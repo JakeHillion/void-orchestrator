@@ -10,6 +10,7 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
+use std::path::PathBuf;
 
 use nix::unistd;
 
@@ -29,10 +30,15 @@ impl<'a> Spawner<'a> {
 
             match &entrypoint.trigger {
                 Trigger::Startup => {
+                    let binary = PathBuf::from(self.binary).canonicalize()?;
+
+                    let mut builder = VoidBuilder::new();
+                    builder.mount(binary, "/entrypoint");
+
                     let closure = || {
                         let args = self.prepare_args(name, &entrypoint.args, None);
 
-                        if let Err(e) = unistd::execv(&CString::new(self.binary).unwrap(), &args)
+                        if let Err(e) = unistd::execv(&CString::new("/entrypoint").unwrap(), &args)
                             .map_err(|e| Error::Nix {
                                 msg: "execv",
                                 src: e,
@@ -45,14 +51,15 @@ impl<'a> Spawner<'a> {
                         }
                     };
 
-                    let mut builder = VoidBuilder::new();
                     builder.spawn(closure)?;
                 }
 
                 Trigger::Pipe(s) => {
                     let pipe = self.pipes.get_mut(s).unwrap().take_read();
+                    let binary = PathBuf::from(self.binary).canonicalize()?;
 
                     let mut builder = VoidBuilder::new();
+                    builder.mount(binary, "/entrypoint");
                     builder.keep_fd(&pipe);
 
                     let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
@@ -87,7 +94,7 @@ impl<'a> Spawner<'a> {
                     let pipe_trigger = std::str::from_utf8(&buf[0..read_bytes]).unwrap();
                     let args = self.prepare_args_ref(name, &spec.args, Some(pipe_trigger));
 
-                    if let Err(e) = unistd::execv(&CString::new(self.binary).unwrap(), &args)
+                    if let Err(e) = unistd::execv(&CString::new("/entrypoint").unwrap(), &args)
                         .map_err(|e| Error::Nix {
                             msg: "execv",
                             src: e,

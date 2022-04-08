@@ -6,7 +6,7 @@ use crate::{Error, Result};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::unshare;
@@ -31,8 +31,8 @@ impl VoidBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn mount(&mut self, src: PathBuf, dst: PathBuf) -> &mut Self {
-        self.mounts.insert(src, dst);
+    pub fn mount<T1: AsRef<Path>, T2: AsRef<Path>>(&mut self, src: T1, dst: T2) -> &mut Self {
+        self.mounts.insert(src.as_ref().into(), dst.as_ref().into());
         self
     }
 
@@ -144,10 +144,37 @@ impl VoidBuilder {
         // chdir after
         std::env::set_current_dir("/")?;
 
-        // TODO: mount requested mounts
+        // mount paths before unmounting old_root
+        for (src, dst) in &self.mounts {
+            let src = PathBuf::from("/old_root/").join(src.strip_prefix("/").unwrap_or(src));
+            let dst = PathBuf::from("/").join(dst);
+
+            debug!("mounting `{:?}` as `{:?}`", src, dst);
+
+            // create the target
+            let src_data = fs::metadata(&src)?;
+            if src_data.is_dir() {
+                fs::create_dir_all(&dst)?;
+            } else {
+                fs::write(&dst, b"")?;
+            }
+
+            // bind mount
+            mount(
+                Some(&src),
+                &dst,
+                Option::<&str>::None,
+                MsFlags::MS_BIND,
+                Option::<&str>::None,
+            )
+            .map_err(|e| Error::Nix {
+                msg: "mount",
+                src: e,
+            })?;
+        }
 
         // unmount the old root
-        umount2("old_root/", MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
+        umount2("/old_root/", MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
             msg: "umount2",
             src: e,
         })?;
