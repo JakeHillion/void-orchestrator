@@ -3,8 +3,9 @@ use log::{debug, error};
 use crate::clone::{clone3, CloneArgs, CloneFlags};
 use crate::{Error, Result};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
@@ -12,23 +13,31 @@ use nix::sched::unshare;
 use nix::sys::signal::Signal;
 use nix::unistd::{pivot_root, Pid};
 
+use close_fds::CloseFdsBuilder;
+
 pub struct VoidHandle {}
 
 pub struct VoidBuilder {
-    #[allow(dead_code)]
     mounts: HashMap<PathBuf, PathBuf>,
+    fds: HashSet<RawFd>,
 }
 
 impl VoidBuilder {
     pub fn new() -> VoidBuilder {
         VoidBuilder {
             mounts: HashMap::new(),
+            fds: HashSet::new(),
         }
     }
 
     #[allow(dead_code)]
     pub fn mount(&mut self, src: PathBuf, dst: PathBuf) -> &mut Self {
         self.mounts.insert(src, dst);
+        self
+    }
+
+    pub fn keep_fd(&mut self, fd: &impl AsRawFd) -> &mut Self {
+        self.fds.insert(fd.as_raw_fd());
         self
     }
 
@@ -50,6 +59,7 @@ impl VoidBuilder {
 
         if child == Pid::from_raw(0) {
             let result = {
+                self.void_files()?;
                 self.void_mount_namespace()?;
                 self.void_user_namespace()?; // last to maintain permissions
 
@@ -77,6 +87,19 @@ impl VoidBuilder {
     }
 
     // per-namespace void creation
+    fn void_files(&self) -> Result<()> {
+        let mut closer = CloseFdsBuilder::new();
+
+        let keep: Box<[RawFd]> = self.fds.iter().copied().collect();
+        closer.keep_fds(&keep);
+
+        unsafe {
+            closer.closefrom(3);
+        }
+
+        Ok(())
+    }
+
     fn void_mount_namespace(&self) -> Result<()> {
         // change the propagation type of the old root to private
         mount(

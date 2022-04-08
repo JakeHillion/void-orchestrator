@@ -11,7 +11,6 @@ use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
 
-use close_fds::CloseFdsBuilder;
 use nix::unistd;
 
 const BUFFER_SIZE: usize = 1024;
@@ -53,24 +52,17 @@ impl<'a> Spawner<'a> {
                 Trigger::Pipe(s) => {
                     let pipe = self.pipes.get_mut(s).unwrap().take_read();
 
-                    let closure = || {
-                        let mut closer = CloseFdsBuilder::new();
-                        let keep = [pipe.as_raw_fd()];
-                        closer.keep_fds(&keep);
-                        unsafe {
-                            closer.closefrom(3);
-                        }
+                    let mut builder = VoidBuilder::new();
+                    builder.keep_fd(&pipe);
 
-                        match self.pipe_trigger(pipe, entrypoint, name) {
-                            Ok(()) => std::process::exit(exitcode::OK),
-                            Err(e) => {
-                                error!("error in pipe_trigger: {}", e);
-                                std::process::exit(1)
-                            }
+                    let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
+                        Ok(()) => std::process::exit(exitcode::OK),
+                        Err(e) => {
+                            error!("error in pipe_trigger: {}", e);
+                            std::process::exit(1)
                         }
                     };
 
-                    let mut builder = VoidBuilder::new();
                     builder.spawn(closure)?;
                 }
             }
