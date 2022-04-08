@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::IntoRawFd;
 use std::path::PathBuf;
 
 use nix::unistd;
@@ -21,6 +21,23 @@ pub struct Spawner<'a> {
     pub pipes: HashMap<String, PipePair>,
     pub binary: &'a str,
     pub trailing: &'a Vec<&'a str>,
+}
+
+enum TriggerData<'a> {
+    /// No data, for example a Startup trigger
+    None,
+
+    /// A string sent across a pipe
+    Pipe(&'a str),
+}
+
+impl<'a> TriggerData<'a> {
+    fn args(&mut self) -> Vec<CString> {
+        match self {
+            TriggerData::None => vec![],
+            TriggerData::Pipe(s) => vec![CString::new(s.to_string()).unwrap()],
+        }
+    }
 }
 
 impl<'a> Spawner<'a> {
@@ -36,7 +53,9 @@ impl<'a> Spawner<'a> {
                     builder.mount(binary, "/entrypoint");
 
                     let closure = || {
-                        let args = self.prepare_args(name, &entrypoint.args, None);
+                        let args = self
+                            .prepare_args(name, &entrypoint.args, &mut TriggerData::None)
+                            .unwrap();
 
                         if let Err(e) = unistd::execv(&CString::new("/entrypoint").unwrap(), &args)
                             .map_err(|e| Error::Nix {
@@ -92,7 +111,9 @@ impl<'a> Spawner<'a> {
             let closure =
                 || {
                     let pipe_trigger = std::str::from_utf8(&buf[0..read_bytes]).unwrap();
-                    let args = self.prepare_args_ref(name, &spec.args, Some(pipe_trigger));
+                    let args = self
+                        .prepare_args_ref(name, &spec.args, &mut TriggerData::Pipe(pipe_trigger))
+                        .unwrap();
 
                     if let Err(e) = unistd::execv(&CString::new("/entrypoint").unwrap(), &args)
                         .map_err(|e| Error::Nix {
@@ -116,67 +137,67 @@ impl<'a> Spawner<'a> {
         &mut self,
         entrypoint: &str,
         args: &[Arg],
-        pipe_trigger: Option<&str>,
-    ) -> Vec<CString> {
+        trigger: &mut TriggerData,
+    ) -> Result<Vec<CString>> {
         let mut out = Vec::new();
         for arg in args {
-            match arg {
-                Arg::BinaryName => out.push(CString::new(self.binary).unwrap()),
-                Arg::Entrypoint => out.push(CString::new(entrypoint).unwrap()),
-
-                Arg::Pipe(p) => out.push(match p {
-                    Pipe::Rx(s) => {
-                        let pipe = self.pipes.get_mut(s).unwrap().take_read().unwrap();
-                        CString::new(pipe.as_raw_fd().to_string()).unwrap()
-                    }
-                    Pipe::Tx(s) => {
-                        let pipe = self.pipes.get_mut(s).unwrap().take_write().unwrap();
-                        CString::new(pipe.as_raw_fd().to_string()).unwrap()
-                    }
-                }),
-
-                Arg::PipeTrigger => {
-                    out.push(CString::new(pipe_trigger.as_ref().unwrap().to_string()).unwrap())
-                }
-
-                Arg::TcpListener { port: _port } => unimplemented!(),
-
-                Arg::Trailing => {
-                    out.extend(self.trailing.iter().map(|s| CString::new(*s).unwrap()))
-                }
-            }
+            out.extend(self.prepare_arg(entrypoint, arg, trigger)?);
         }
-
-        out
+        Ok(out)
     }
-
     fn prepare_args_ref(
         &self,
         entrypoint: &str,
         args: &[Arg],
-        pipe_trigger: Option<&str>,
-    ) -> Vec<CString> {
+        trigger: &mut TriggerData,
+    ) -> Result<Vec<CString>> {
         let mut out = Vec::new();
-
         for arg in args {
-            match arg {
-                Arg::BinaryName => out.push(CString::new(self.binary).unwrap()),
-                Arg::Entrypoint => out.push(CString::new(entrypoint).unwrap()),
-
-                Arg::Pipe(_) => panic!("can't use pipes with an immutable reference"),
-
-                Arg::PipeTrigger => {
-                    out.push(CString::new(pipe_trigger.as_ref().unwrap().to_string()).unwrap())
-                }
-
-                Arg::TcpListener { port: _port } => unimplemented!(),
-
-                Arg::Trailing => {
-                    out.extend(self.trailing.iter().map(|s| CString::new(*s).unwrap()))
-                }
-            }
+            out.extend(self.prepare_arg_ref(entrypoint, arg, trigger)?);
         }
+        Ok(out)
+    }
 
-        out
+    fn prepare_arg(
+        &mut self,
+        entrypoint: &str,
+        arg: &Arg,
+        trigger: &mut TriggerData,
+    ) -> Result<Vec<CString>> {
+        match arg {
+            Arg::Pipe(p) => match p {
+                Pipe::Rx(s) => {
+                    let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
+                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
+                }
+                Pipe::Tx(s) => {
+                    let pipe = self.pipes.get_mut(s).unwrap().take_write()?;
+                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
+                }
+            },
+            a => self.prepare_arg_ref(entrypoint, a, trigger),
+        }
+    }
+
+    fn prepare_arg_ref(
+        &self,
+        entrypoint: &str,
+        arg: &Arg,
+        trigger: &mut TriggerData,
+    ) -> Result<Vec<CString>> {
+        match arg {
+            Arg::BinaryName => Ok(vec![CString::new(self.binary).unwrap()]),
+            Arg::Entrypoint => Ok(vec![CString::new(entrypoint).unwrap()]),
+
+            Arg::Pipe(p) => Err(Error::BadPipe(p.get_name().to_string())),
+
+            Arg::Trigger => Ok(trigger.args()),
+            Arg::TcpListener { port: _port } => unimplemented!(),
+            Arg::Trailing => Ok(self
+                .trailing
+                .iter()
+                .map(|s| CString::new(*s).unwrap())
+                .collect()),
+        }
     }
 }

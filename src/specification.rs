@@ -46,9 +46,9 @@ pub enum Arg {
     /// A chosen end of a named pipe
     Pipe(Pipe),
 
-    /// The value of a pipe trigger
+    /// A value specified by the trigger
     /// NOTE: Only valid if the trigger is of type Pipe(...)
-    PipeTrigger,
+    Trigger,
 
     /// A TCP Listener
     TcpListener { port: u16 },
@@ -67,6 +67,15 @@ impl Arg {
 pub enum Pipe {
     Rx(String),
     Tx(String),
+}
+
+impl Pipe {
+    pub fn get_name(&self) -> &str {
+        match self {
+            Pipe::Rx(n) => n,
+            Pipe::Tx(n) => n,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -145,7 +154,7 @@ impl Specification {
 
         // validate pipe trigger arguments make sense
         for entrypoint in self.entrypoints.values() {
-            if entrypoint.args.contains(&Arg::PipeTrigger) {
+            if entrypoint.args.contains(&Arg::Trigger) {
                 match entrypoint.trigger {
                     Trigger::Pipe(_) => {}
                     _ => return Err(Error::BadTriggerArgument),
