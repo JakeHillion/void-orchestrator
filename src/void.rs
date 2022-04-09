@@ -30,7 +30,6 @@ impl VoidBuilder {
         }
     }
 
-    #[allow(dead_code)]
     pub fn mount<T1: AsRef<Path>, T2: AsRef<Path>>(&mut self, src: T1, dst: T2) -> &mut Self {
         self.mounts.insert(src.as_ref().into(), dst.as_ref().into());
         self
