@@ -175,6 +175,20 @@ impl VoidBuilder {
             })?;
         }
 
+        // recursively remount the old root as private to avoid shared unmounting
+        // the submounts (because MNT_DETACH is recursive)
+        mount(
+            Option::<&str>::None,
+            "/old_root/",
+            Option::<&str>::None,
+            MsFlags::MS_REC | MsFlags::MS_PRIVATE,
+            Option::<&str>::None,
+        )
+        .map_err(|e| Error::Nix {
+            msg: "mount",
+            src: e,
+        })?;
+
         // unmount the old root
         umount2("/old_root/", MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
             msg: "umount2",
