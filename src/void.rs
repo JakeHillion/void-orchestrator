@@ -155,6 +155,9 @@ impl VoidBuilder {
             if src_data.is_dir() {
                 fs::create_dir_all(&dst)?;
             } else {
+                if let Some(parent) = dst.parent() {
+                    fs::create_dir_all(parent)?;
+                }
                 fs::write(&dst, b"")?;
             }
 
