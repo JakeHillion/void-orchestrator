@@ -21,6 +21,9 @@ pub struct Entrypoint {
 
     #[serde(default = "Arg::default_vec")]
     pub args: Vec<Arg>,
+
+    #[serde(default)]
+    pub environment: HashSet<Environment>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -106,15 +109,11 @@ impl FileSocket {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub enum Permission {
+pub enum Environment {
     Filesystem {
         host_path: PathBuf,
-        final_path: PathBuf,
+        environment_path: PathBuf,
     },
-    Network {
-        network: Network,
-    },
-    PropagateFiles,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

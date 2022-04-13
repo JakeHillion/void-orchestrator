@@ -148,13 +148,21 @@ impl VoidBuilder {
 
         // mount paths before unmounting old_root
         for (src, dst) in &self.mounts {
-            let src = old_root.join(src.strip_prefix("/").unwrap_or(src));
+            let mut src = old_root.join(src.strip_prefix("/").unwrap_or(src));
             let dst = new_root.join(dst.strip_prefix("/").unwrap_or(dst));
 
             debug!("mounting `{:?}` as `{:?}`", src, dst);
 
             // create the target
-            let src_data = fs::metadata(&src)?;
+            let mut src_data = fs::symlink_metadata(&src)?;
+
+            if src_data.is_symlink() {
+                let link = fs::read_link(src)?;
+
+                src = old_root.join(link.strip_prefix("/").unwrap_or(&link));
+                src_data = fs::metadata(&src)?;
+            }
+
             if src_data.is_dir() {
                 fs::create_dir_all(&dst)?;
             } else {

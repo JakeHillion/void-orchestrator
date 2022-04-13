@@ -1,6 +1,8 @@
 use log::{debug, error, info};
 
-use super::specification::{Arg, Entrypoint, FileSocket, Pipe, Specification, Trigger};
+use super::specification::{
+    Arg, Entrypoint, Environment, FileSocket, Pipe, Specification, Trigger,
+};
 use super::{PipePair, SocketPair};
 use crate::void::VoidBuilder;
 use crate::{Error, Result};
@@ -63,6 +65,8 @@ impl<'a> Spawner<'a> {
                     let mut builder = VoidBuilder::new();
                     builder.mount(binary, "/entrypoint");
 
+                    self.prepare_env(&mut builder, &entrypoint.environment);
+
                     let closure = || {
                         let args = self
                             .prepare_args(name, &entrypoint.args, &mut TriggerData::None)
@@ -92,6 +96,8 @@ impl<'a> Spawner<'a> {
                     builder.mount(binary, "/entrypoint");
                     builder.keep_fd(&pipe);
 
+                    self.prepare_env(&mut builder, &entrypoint.environment);
+
                     let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
                         Ok(()) => std::process::exit(exitcode::OK),
                         Err(e) => {
@@ -110,6 +116,8 @@ impl<'a> Spawner<'a> {
                     let mut builder = VoidBuilder::new();
                     builder.mount(binary, "/entrypoint");
                     builder.keep_fd(&socket);
+
+                    self.prepare_env(&mut builder, &entrypoint.environment);
 
                     let closure = || match self.file_socket_trigger(socket, entrypoint, name) {
                         Ok(()) => std::process::exit(exitcode::OK),
@@ -139,6 +147,17 @@ impl<'a> Spawner<'a> {
 
             let mut builder = VoidBuilder::new();
             builder.mount("/entrypoint", "/entrypoint");
+
+            for env in &spec.environment {
+                match env {
+                    Environment::Filesystem {
+                        host_path: _host_path,
+                        environment_path,
+                    } => {
+                        builder.mount(environment_path, environment_path);
+                    }
+                }
+            }
 
             let closure =
                 || {
@@ -190,6 +209,17 @@ impl<'a> Spawner<'a> {
                             builder.keep_fd(fd);
                         }
 
+                        for env in &spec.environment {
+                            match env {
+                                Environment::Filesystem {
+                                    host_path: _host_path,
+                                    environment_path,
+                                } => {
+                                    builder.mount(environment_path, environment_path);
+                                }
+                            }
+                        }
+
                         let closure = || {
                             let args = self
                                 .prepare_args_ref(
@@ -217,6 +247,23 @@ impl<'a> Spawner<'a> {
                         builder.spawn(closure)?;
                     }
                     _ => unimplemented!(),
+                }
+            }
+        }
+    }
+
+    fn prepare_env<'b>(
+        &self,
+        builder: &mut VoidBuilder,
+        environment: impl IntoIterator<Item = &'b Environment>,
+    ) {
+        for env in environment {
+            match env {
+                Environment::Filesystem {
+                    host_path,
+                    environment_path,
+                } => {
+                    builder.mount(host_path, environment_path);
                 }
             }
         }
