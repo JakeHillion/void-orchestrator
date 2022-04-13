@@ -130,23 +130,26 @@ impl VoidBuilder {
         })?;
 
         // prepare a subdirectory to pivot the old root into
-        let put_old = new_root.join("old_root/");
-        debug!("new_root: {:?}; put_old: {:?}", &new_root, &put_old);
-        fs::create_dir(&put_old)?;
+        let old_root = new_root.join("old_root/");
+        debug!("new_root: {:?}; put_old: {:?}", &new_root, &old_root);
+        fs::create_dir(&old_root)?;
 
         // pivot the old root into a subdirectory of the new root
-        pivot_root(&new_root, &put_old).map_err(|e| Error::Nix {
+        pivot_root(&new_root, &old_root).map_err(|e| Error::Nix {
             msg: "pivot_root",
             src: e,
         })?;
 
+        let new_root = PathBuf::from("/");
+        let old_root = PathBuf::from("/old_root/");
+
         // chdir after
-        std::env::set_current_dir("/")?;
+        std::env::set_current_dir(&new_root)?;
 
         // mount paths before unmounting old_root
         for (src, dst) in &self.mounts {
-            let src = PathBuf::from("/old_root/").join(src.strip_prefix("/").unwrap_or(src));
-            let dst = PathBuf::from("/").join(dst);
+            let src = old_root.join(src.strip_prefix("/").unwrap_or(src));
+            let dst = new_root.join(dst.strip_prefix("/").unwrap_or(dst));
 
             debug!("mounting `{:?}` as `{:?}`", src, dst);
 
@@ -179,7 +182,7 @@ impl VoidBuilder {
         // the submounts (because MNT_DETACH is recursive)
         mount(
             Option::<&str>::None,
-            "/old_root/",
+            &old_root,
             Option::<&str>::None,
             MsFlags::MS_REC | MsFlags::MS_PRIVATE,
             Option::<&str>::None,
@@ -190,13 +193,13 @@ impl VoidBuilder {
         })?;
 
         // unmount the old root
-        umount2("/old_root/", MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
+        umount2(&old_root, MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
             msg: "umount2",
             src: e,
         })?;
 
         // delete the old root mount point
-        fs::remove_dir("old_root/")?;
+        fs::remove_dir(&old_root)?;
 
         Ok(())
     }
