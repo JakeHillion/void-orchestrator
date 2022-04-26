@@ -78,7 +78,7 @@ impl Arg {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum Pipe {
     Rx(String),
     Tx(String),
@@ -93,7 +93,7 @@ impl Pipe {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum FileSocket {
     Rx(String),
     Tx(String),
