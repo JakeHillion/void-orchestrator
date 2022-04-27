@@ -8,6 +8,7 @@ use std::fs;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
 
+use nix::fcntl::{FcntlArg, FdFlag};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::unshare;
 use nix::sys::signal::{signal, SigHandler, Signal};
@@ -101,6 +102,22 @@ impl VoidBuilder {
 
         unsafe {
             closer.closefrom(3);
+        }
+
+        for fd in keep.as_ref() {
+            let mut flags = FdFlag::from_bits_truncate(
+                nix::fcntl::fcntl(*fd, FcntlArg::F_GETFD).map_err(|e| Error::Nix {
+                    msg: "fcntl",
+                    src: e,
+                })?,
+            );
+
+            flags.remove(FdFlag::FD_CLOEXEC);
+
+            nix::fcntl::fcntl(*fd, FcntlArg::F_SETFD(flags)).map_err(|e| Error::Nix {
+                msg: "fcntl",
+                src: e,
+            })?;
         }
 
         Ok(())

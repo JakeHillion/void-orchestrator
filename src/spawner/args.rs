@@ -1,5 +1,6 @@
 use super::{Spawner, TriggerData};
 use crate::specification::{Arg, FileSocket, Pipe};
+use crate::void::VoidBuilder;
 use crate::{Error, Result};
 
 use std::ffi::CString;
@@ -7,36 +8,42 @@ use std::fs::File;
 use std::net::TcpListener;
 use std::os::unix::io::IntoRawFd;
 
-/**
- * perform initial processing with ambient authority
- * for things like network sockets.
- */
 pub struct PreparedArgs(Vec<PreparedArg>);
 
 impl PreparedArgs {
-    pub fn prepare_ambient(args: &[Arg]) -> Result<Self> {
+    /**
+     * perform initial processing with ambient authority
+     * for things like network sockets. update the builder
+     * with newly passed fds. the mutable call is allowed
+     * to use up things such as pipes and sockets.
+     */
+    pub fn prepare_ambient_mut(
+        spawner: &mut Spawner,
+        builder: &mut VoidBuilder,
+        args: &[Arg],
+    ) -> Result<Self> {
         let mut v = Vec::with_capacity(args.len());
 
         for arg in args {
-            v.push(PreparedArg::prepare_ambient(arg)?);
+            v.push(PreparedArg::prepare_ambient_mut(spawner, builder, arg)?);
         }
 
         Ok(PreparedArgs(v))
     }
 
-    pub(super) fn prepare_void_mut(
-        self,
-        spawner: &mut Spawner,
-        entrypoint: &str,
-        trigger: &mut TriggerData,
-    ) -> Result<Vec<CString>> {
-        let mut v = Vec::new();
+    /**
+     * perform initial processing with ambient authority
+     * for things like network sockets. update the builder
+     * with newly passed fds.
+     */
+    pub fn prepare_ambient(builder: &mut VoidBuilder, args: &[Arg]) -> Result<Self> {
+        let mut v = Vec::with_capacity(args.len());
 
-        for arg in self.0 {
-            v.extend(arg.prepare_void_mut(spawner, entrypoint, trigger)?)
+        for arg in args {
+            v.push(PreparedArg::prepare_ambient(builder, arg)?);
         }
 
-        Ok(v)
+        Ok(PreparedArgs(v))
     }
 
     pub(super) fn prepare_void(
@@ -65,10 +72,10 @@ enum PreparedArg {
     File(File),
 
     /// A chosen end of a named pipe
-    Pipe(Pipe),
+    Pipe(File),
 
     /// File socket
-    FileSocket(FileSocket),
+    FileSocket(File),
 
     /// A value specified by the trigger
     /// NOTE: Only valid if the trigger is of type Pipe(...) or FileSocket(...)
@@ -89,57 +96,60 @@ impl PreparedArg {
      * Leave the remainder untouched so they can be processed in parallel
      * (in the child process) and to reduce authority
      */
-    fn prepare_ambient(arg: &Arg) -> Result<Self> {
+    fn prepare_ambient_mut(
+        spawner: &mut Spawner,
+        builder: &mut VoidBuilder,
+        arg: &Arg,
+    ) -> Result<Self> {
         Ok(match arg {
-            Arg::File(path) => PreparedArg::File(File::open(path)?),
+            Arg::Pipe(p) => {
+                let pipe = match p {
+                    Pipe::Rx(s) => spawner.pipes.get_mut(s).unwrap().take_read(),
+                    Pipe::Tx(s) => spawner.pipes.get_mut(s).unwrap().take_write(),
+                }?;
 
-            Arg::TcpListener { addr } => PreparedArg::TcpListener {
-                socket: TcpListener::bind(addr)?,
-            },
+                builder.keep_fd(&pipe);
+                PreparedArg::Pipe(pipe)
+            }
 
-            Arg::BinaryName => PreparedArg::BinaryName,
-            Arg::Entrypoint => PreparedArg::Entrypoint,
-            Arg::Pipe(p) => PreparedArg::Pipe(p.clone()),
-            Arg::FileSocket(s) => PreparedArg::FileSocket(s.clone()),
-            Arg::Trigger => PreparedArg::Trigger,
-            Arg::Trailing => PreparedArg::Trailing,
+            Arg::FileSocket(s) => {
+                let socket = match s {
+                    FileSocket::Rx(s) => spawner.sockets.get_mut(s).unwrap().take_read(),
+                    FileSocket::Tx(s) => spawner.sockets.get_mut(s).unwrap().take_write(),
+                }?;
+
+                builder.keep_fd(&socket);
+                PreparedArg::FileSocket(socket)
+            }
+
+            arg => Self::prepare_ambient(builder, arg)?,
         })
     }
 
-    /**
-     * Complete argument preparation in the void
-     */
-    fn prepare_void_mut(
-        self,
-        spawner: &mut Spawner,
-        entrypoint: &str,
-        trigger: &mut TriggerData,
-    ) -> Result<Vec<CString>> {
-        match self {
-            PreparedArg::Pipe(p) => match p {
-                Pipe::Rx(s) => {
-                    let pipe = spawner.pipes.get_mut(&s).unwrap().take_read()?;
-                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
-                }
-                Pipe::Tx(s) => {
-                    let pipe = spawner.pipes.get_mut(&s).unwrap().take_write()?;
-                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
-                }
-            },
+    fn prepare_ambient(builder: &mut VoidBuilder, arg: &Arg) -> Result<Self> {
+        Ok(match arg {
+            Arg::Pipe(p) => return Err(Error::BadPipe(p.get_name().to_string())),
+            Arg::FileSocket(s) => return Err(Error::BadFileSocket(s.get_name().to_string())),
 
-            PreparedArg::FileSocket(s) => match s {
-                FileSocket::Rx(s) => {
-                    let pipe = spawner.sockets.get_mut(&s).unwrap().take_read()?;
-                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
-                }
-                FileSocket::Tx(s) => {
-                    let pipe = spawner.sockets.get_mut(&s).unwrap().take_write()?;
-                    Ok(vec![CString::new(pipe.into_raw_fd().to_string()).unwrap()])
-                }
-            },
+            Arg::File(path) => {
+                let fd = File::open(path)?;
+                builder.keep_fd(&fd);
 
-            arg => arg.prepare_void(spawner, entrypoint, trigger),
-        }
+                PreparedArg::File(fd)
+            }
+
+            Arg::TcpListener { addr } => {
+                let socket = TcpListener::bind(addr)?;
+                builder.keep_fd(&socket);
+
+                PreparedArg::TcpListener { socket }
+            }
+
+            Arg::BinaryName => PreparedArg::BinaryName,
+            Arg::Entrypoint => PreparedArg::Entrypoint,
+            Arg::Trigger => PreparedArg::Trigger,
+            Arg::Trailing => PreparedArg::Trailing,
+        })
     }
 
     /**
@@ -155,8 +165,10 @@ impl PreparedArg {
             PreparedArg::BinaryName => Ok(vec![CString::new(spawner.binary).unwrap()]),
             PreparedArg::Entrypoint => Ok(vec![CString::new(entrypoint).unwrap()]),
 
-            PreparedArg::Pipe(p) => Err(Error::BadPipe(p.get_name().to_string())),
-            PreparedArg::FileSocket(s) => Err(Error::BadFileSocket(s.get_name().to_string())),
+            PreparedArg::Pipe(p) => Ok(vec![CString::new(p.into_raw_fd().to_string()).unwrap()]),
+            PreparedArg::FileSocket(s) => {
+                Ok(vec![CString::new(s.into_raw_fd().to_string()).unwrap()])
+            }
 
             PreparedArg::File(f) => Ok(vec![CString::new(f.into_raw_fd().to_string()).unwrap()]),
 

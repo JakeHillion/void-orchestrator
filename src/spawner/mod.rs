@@ -68,11 +68,12 @@ impl<'a> Spawner<'a> {
 
                     self.prepare_env(&mut builder, &entrypoint.environment);
 
-                    let args = PreparedArgs::prepare_ambient(&entrypoint.args)?;
+                    let args =
+                        PreparedArgs::prepare_ambient_mut(self, &mut builder, &entrypoint.args)?;
 
                     let closure = || {
                         let args = args
-                            .prepare_void_mut(self, name, &mut TriggerData::None)
+                            .prepare_void(self, name, &mut TriggerData::None)
                             .unwrap();
 
                         if let Err(e) = unistd::execv(&CString::new("/entrypoint").unwrap(), &args)
@@ -162,7 +163,7 @@ impl<'a> Spawner<'a> {
                 }
             }
 
-            let args = PreparedArgs::prepare_ambient(&spec.args)?;
+            let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
 
             let closure =
                 || {
@@ -226,7 +227,7 @@ impl<'a> Spawner<'a> {
                             }
                         }
 
-                        let args = PreparedArgs::prepare_ambient(&spec.args)?;
+                        let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
 
                         let closure = || {
                             let args = args
