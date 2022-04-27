@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sched::unshare;
-use nix::sys::signal::Signal;
+use nix::sys::signal::{signal, SigHandler, Signal};
 use nix::unistd::{pivot_root, Pid};
 
 use close_fds::CloseFdsBuilder;
@@ -57,6 +57,13 @@ impl VoidBuilder {
         })?;
 
         if child == Pid::from_raw(0) {
+            // ignore SIGHUP
+            // safety: safe as ignores the return result of the previous handler
+            unsafe { signal(Signal::SIGHUP, SigHandler::SigIgn) }.map_err(|e| Error::Nix {
+                msg: "signal",
+                src: e,
+            })?;
+
             let result = {
                 self.void_files()?;
                 self.void_mount_namespace()?;
