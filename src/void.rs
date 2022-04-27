@@ -4,9 +4,9 @@ use crate::clone::{clone3, CloneArgs, CloneFlags};
 use crate::{Error, Result};
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
+use std::{fmt, fs};
 
 use nix::fcntl::{FcntlArg, FdFlag};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
@@ -16,7 +16,15 @@ use nix::unistd::{pivot_root, Pid};
 
 use close_fds::CloseFdsBuilder;
 
-pub struct VoidHandle {}
+pub struct VoidHandle {
+    pid: Pid,
+}
+
+impl fmt::Display for VoidHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Void{{Pid:{}}}", self.pid)
+    }
+}
 
 pub struct VoidBuilder {
     mounts: HashMap<PathBuf, PathBuf>,
@@ -90,7 +98,7 @@ impl VoidBuilder {
         // be a problem.
         std::mem::forget(child_fn);
 
-        Ok(VoidHandle {})
+        Ok(VoidHandle { pid: child })
     }
 
     // per-namespace void creation

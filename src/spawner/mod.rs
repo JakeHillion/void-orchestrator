@@ -16,8 +16,9 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::path::PathBuf;
 
+use nix::sys::signal::{kill, Signal};
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
-use nix::unistd;
+use nix::unistd::{self, Pid};
 
 const BUFFER_SIZE: usize = 1024;
 
@@ -25,6 +26,7 @@ pub struct Spawner<'a> {
     pub spec: &'a Specification,
     pub binary: &'a str,
     pub trailing: &'a Vec<&'a str>,
+    pub debug: bool,
 
     pub pipes: HashMap<String, PipePair>,
     pub sockets: HashMap<String, SocketPair>,
@@ -72,6 +74,10 @@ impl<'a> Spawner<'a> {
                         PreparedArgs::prepare_ambient_mut(self, &mut builder, &entrypoint.args)?;
 
                     let closure = || {
+                        if self.debug {
+                            Self::stop_self(name).unwrap()
+                        }
+
                         let args = args
                             .prepare_void(self, name, &mut TriggerData::None)
                             .unwrap();
@@ -89,7 +95,8 @@ impl<'a> Spawner<'a> {
                         }
                     };
 
-                    builder.spawn(closure)?;
+                    let void = builder.spawn(closure)?;
+                    info!("spawned entrypoint `{}` as {}", name.as_str(), void);
                 }
 
                 Trigger::Pipe(s) => {
@@ -110,7 +117,12 @@ impl<'a> Spawner<'a> {
                         }
                     };
 
-                    builder.spawn(closure)?;
+                    let void = builder.spawn(closure)?;
+                    info!(
+                        "prepared pipe trigger for entrypoint `{}` as {}",
+                        name.as_str(),
+                        void
+                    );
                 }
 
                 Trigger::FileSocket(s) => {
@@ -131,7 +143,12 @@ impl<'a> Spawner<'a> {
                         }
                     };
 
-                    builder.spawn(closure)?;
+                    let void = builder.spawn(closure)?;
+                    info!(
+                        "prepared socket trigger for entrypoint `{}` as {}",
+                        name.as_str(),
+                        void
+                    );
                 }
             }
         }
@@ -167,6 +184,10 @@ impl<'a> Spawner<'a> {
 
             let closure =
                 || {
+                    if self.debug {
+                        Self::stop_self(name).unwrap()
+                    }
+
                     let pipe_trigger = std::str::from_utf8(&buf[0..read_bytes]).unwrap();
 
                     let args = args
@@ -230,6 +251,10 @@ impl<'a> Spawner<'a> {
                         let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
 
                         let closure = || {
+                            if self.debug {
+                                Self::stop_self(name).unwrap()
+                            }
+
                             let args = args
                                 .prepare_void(self, name, &mut TriggerData::FileSocket(fds))
                                 .unwrap();
@@ -255,6 +280,19 @@ impl<'a> Spawner<'a> {
                 }
             }
         }
+    }
+
+    fn stop_self(name: &str) -> Result<()> {
+        let pid = Pid::this();
+        info!("stopping process `{}`", name);
+
+        kill(pid, Signal::SIGSTOP).map_err(|e| Error::Nix {
+            msg: "kill",
+            src: e,
+        })?;
+
+        info!("process `{}` resumed", name);
+        Ok(())
     }
 
     fn prepare_env<'b>(

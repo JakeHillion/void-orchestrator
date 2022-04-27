@@ -28,6 +28,7 @@ pub fn run() -> Result<()> {
         .arg(clap::Arg::new("spec").long("specification").short('s').help("Provide the specification as an external JSON file.").takes_value(true))
         .setting(AppSettings::TrailingVarArg)
         .arg(clap::Arg::new("verbose").long("verbose").short('v').help("Use verbose logging.").takes_value(false))
+        .arg(clap::Arg::new("debug").long("debug").short('d').help("Stop each spawned application process so that it can be attached to.").takes_value(false))
         .arg(clap::Arg::new("binary").index(1).help("Binary and arguments to launch with the shim").required(true).multiple_values(true))
         .get_matches();
 
@@ -74,15 +75,20 @@ pub fn run() -> Result<()> {
     let sockets = create_sockets(sockets)?;
 
     // spawn all processes
+    let debug = matches.is_present("debug");
+
     Spawner {
         spec: &spec,
         binary,
         trailing: &trailing,
+        debug,
 
         pipes,
         sockets,
     }
-    .spawn()
+    .spawn()?;
+
+    Ok(())
 }
 
 fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>> {
