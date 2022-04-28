@@ -4,15 +4,16 @@ use crate::clone::{clone3, CloneArgs, CloneFlags};
 use crate::{Error, Result};
 
 use std::collections::{HashMap, HashSet};
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::fmt;
+use std::fs;
+use std::io::Write;
+use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
-use std::{fmt, fs};
 
 use nix::fcntl::{FcntlArg, FdFlag};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
-use nix::sched::unshare;
 use nix::sys::signal::{signal, SigHandler, Signal};
-use nix::unistd::{pivot_root, Pid};
+use nix::unistd::{close, getgid, getuid, pivot_root, Gid, Pid, Uid};
 
 use close_fds::CloseFdsBuilder;
 
@@ -56,9 +57,13 @@ impl VoidBuilder {
                 | CloneFlags::CLONE_NEWNET
                 | CloneFlags::CLONE_NEWNS
                 | CloneFlags::CLONE_NEWPID
+                | CloneFlags::CLONE_NEWUSER
                 | CloneFlags::CLONE_NEWUTS,
         );
         args.exit_signal = Some(Signal::SIGCHLD);
+
+        let parent_uid = getuid();
+        let parent_gid = getgid();
 
         let child = clone3(args).map_err(|e| Error::Nix {
             msg: "clone3",
@@ -74,9 +79,9 @@ impl VoidBuilder {
             })?;
 
             let result = {
+                self.void_user_namespace(parent_uid, parent_gid)?; // first to regain full capabilities
                 self.void_files()?;
                 self.void_mount_namespace()?;
-                self.void_user_namespace()?; // last to maintain permissions
 
                 Ok::<(), Error>(())
             };
@@ -99,6 +104,46 @@ impl VoidBuilder {
         std::mem::forget(child_fn);
 
         Ok(VoidHandle { pid: child })
+    }
+
+    fn void_user_namespace(&self, parent_uid: Uid, parent_gid: Gid) -> Result<()> {
+        debug!("mapping root uid to {} in the parent", parent_uid);
+        let mut uid_map = fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open("/proc/self/uid_map")?;
+
+        uid_map.write_all(format!("0 {} 1\n", parent_uid).as_ref())?;
+        close(uid_map.into_raw_fd()).map_err(|e| Error::Nix {
+            msg: "close",
+            src: e,
+        })?;
+
+        debug!("writing deny to setgroups");
+        let mut setgroups = fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open("/proc/self/setgroups")?;
+
+        setgroups.write_all("deny\n".as_bytes())?;
+        close(setgroups.into_raw_fd()).map_err(|e| Error::Nix {
+            msg: "close",
+            src: e,
+        })?;
+
+        debug!("mapping root gid to {} in the parent", parent_gid);
+        let mut gid_map = fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open("/proc/self/gid_map")?;
+
+        gid_map.write_all(format!("0 {} 1\n", parent_gid).as_ref())?;
+        close(gid_map.into_raw_fd()).map_err(|e| Error::Nix {
+            msg: "close",
+            src: e,
+        })?;
+
+        Ok(())
     }
 
     // per-namespace void creation
@@ -240,15 +285,6 @@ impl VoidBuilder {
 
         // delete the old root mount point
         fs::remove_dir(&old_root)?;
-
-        Ok(())
-    }
-
-    fn void_user_namespace(&self) -> Result<()> {
-        unshare(CloneFlags::CLONE_NEWUSER).map_err(|e| Error::Nix {
-            msg: "unshare",
-            src: e,
-        })?;
 
         Ok(())
     }

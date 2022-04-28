@@ -10,7 +10,7 @@ To run this example:
 
     cargo build
     cargo build --example basic
-    sudo target/debug/clone-shim -s examples/basic/spec.json target/debug/examples/basic
+    target/debug/clone-shim -s examples/basic/spec.json target/debug/examples/basic
 
 ### examples/pipes
 
@@ -20,7 +20,7 @@ To run this example:
 
     cargo build
     cargo build --example pipes
-    sudo target/debug/clone-shim -s examples/pipes/spec.json target/debug/examples/pipes
+    target/debug/clone-shim -s examples/pipes/spec.json target/debug/examples/pipes
 
 ## Debugging the shim
 
