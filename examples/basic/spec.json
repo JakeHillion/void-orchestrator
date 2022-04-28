@@ -4,12 +4,52 @@
             "args": [
                 "BinaryName",
                 "Entrypoint"
+            ],
+            "environment": [
+                {
+                    "Filesystem": {
+                        "host_path": "/lib/x86_64-linux-gnu/libgcc_s.so.1",
+                        "environment_path": "/lib/libgcc_s.so.1"
+                    }
+                },
+                {
+                    "Filesystem": {
+                        "host_path": "/lib/x86_64-linux-gnu/libc.so.6",
+                        "environment_path": "/lib/libc.so.6"
+                    }
+                },
+                {
+                    "Filesystem": {
+                        "host_path": "/lib64/ld-linux-x86-64.so.2",
+                        "environment_path": "/lib64/ld-linux-x86-64.so.2"
+                    }
+                }
             ]
         },
         "main2": {
             "args": [
                 "BinaryName",
                 "Entrypoint"
+            ],
+            "environment": [
+                {
+                    "Filesystem": {
+                        "host_path": "/lib/x86_64-linux-gnu/libgcc_s.so.1",
+                        "environment_path": "/lib/libgcc_s.so.1"
+                    }
+                },
+                {
+                    "Filesystem": {
+                        "host_path": "/lib/x86_64-linux-gnu/libc.so.6",
+                        "environment_path": "/lib/libc.so.6"
+                    }
+                },
+                {
+                    "Filesystem": {
+                        "host_path": "/lib64/ld-linux-x86-64.so.2",
+                        "environment_path": "/lib64/ld-linux-x86-64.so.2"
+                    }
+                }
             ]
         }
     }
