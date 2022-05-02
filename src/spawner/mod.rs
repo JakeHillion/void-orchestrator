@@ -212,14 +212,13 @@ impl<'a> Spawner<'a> {
     }
 
     fn file_socket_trigger(&self, socket: File, spec: &Entrypoint, name: &str) -> Result<()> {
-        let mut buf = Vec::new();
         loop {
-            let msg = recvmsg(socket.as_raw_fd(), &[], Some(&mut buf), MsgFlags::empty()).map_err(
-                |e| Error::Nix {
+            let msg = recvmsg(socket.as_raw_fd(), &[], None, MsgFlags::empty()).map_err(|e| {
+                Error::Nix {
                     msg: "recvmsg",
                     src: e,
-                },
-            )?;
+                }
+            })?;
 
             debug!("triggering from socket recvmsg");
 
