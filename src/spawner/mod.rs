@@ -1,8 +1,10 @@
 use log::{debug, error, info};
 
 mod args;
+mod rpc;
 
 use args::PreparedArgs;
+use rpc::RpcHandler;
 
 use crate::specification::{Arg, Entrypoint, Environment, Specification, Trigger};
 use crate::void::VoidBuilder;

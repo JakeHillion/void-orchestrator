@@ -1,4 +1,6 @@
-use super::{Spawner, TriggerData};
+use log::info;
+
+use super::{RpcHandler, Spawner, TriggerData};
 use crate::specification::{Arg, FileSocket, Pipe};
 use crate::void::VoidBuilder;
 use crate::{Error, Result};
@@ -7,7 +9,10 @@ use std::ffi::CString;
 use std::fs::File;
 use std::net::TcpListener;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::io::IntoRawFd;
+use std::os::unix::io::{FromRawFd, IntoRawFd};
+
+use nix::sys::socket;
+use nix::unistd::{fork, ForkResult};
 
 pub struct PreparedArgs(Vec<PreparedArg>);
 
@@ -89,6 +94,9 @@ enum PreparedArg {
     /// A TCP Listener
     TcpListener { socket: TcpListener },
 
+    /// RPC
+    Rpc { socket: File },
+
     /// The rest of argv[1..], 0 or more arguments
     Trailing,
 }
@@ -154,6 +162,45 @@ impl PreparedArg {
                 PreparedArg::TcpListener { socket }
             }
 
+            Arg::Rpc(specs) => {
+                let (ambient, void) = socket::socketpair(
+                    socket::AddressFamily::Unix,
+                    socket::SockType::Datagram,
+                    None,
+                    socket::SockFlag::empty(),
+                )
+                .map_err(|e| Error::Nix {
+                    msg: "socketpair",
+                    src: e,
+                })?;
+
+                // SAFETY: valid new fd as socketpair(2) returned successfully
+                let ambient = unsafe { File::from_raw_fd(ambient) };
+                // SAFETY: valid new fd as socketpair(2) returned successfully
+                let void = unsafe { File::from_raw_fd(void) };
+
+                // spawn this child with ambient authority
+                // necessary as no void ever has outgoing network capability
+                // SAFETY: this program is single-threaded so no safety issue
+                let child = unsafe { fork() }.map_err(|e| Error::Nix {
+                    msg: "fork",
+                    src: e,
+                })?;
+
+                match child {
+                    ForkResult::Child => {
+                        let handler = RpcHandler::new(specs);
+                        handler.handle(ambient).unwrap();
+                    }
+                    ForkResult::Parent { child } => {
+                        info!("spawned rpc handler with pid {}", child);
+                    }
+                };
+
+                // SAFETY: safe as socketpair returned successfully
+                PreparedArg::Rpc { socket: void }
+            }
+
             Arg::BinaryName => PreparedArg::BinaryName,
             Arg::Entrypoint => PreparedArg::Entrypoint,
             Arg::Trigger => PreparedArg::Trigger,
@@ -188,6 +235,10 @@ impl PreparedArg {
             PreparedArg::Trigger => Ok(trigger.args()),
 
             PreparedArg::TcpListener { socket } => {
+                Ok(vec![CString::new(socket.into_raw_fd().to_string()).unwrap()])
+            }
+
+            PreparedArg::Rpc { socket } => {
                 Ok(vec![CString::new(socket.into_raw_fd().to_string()).unwrap()])
             }
 

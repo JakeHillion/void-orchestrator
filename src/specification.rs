@@ -68,6 +68,9 @@ pub enum Arg {
     /// A TCP Listener
     TcpListener { addr: SocketAddr },
 
+    /// An RPC socket that accepts specified commands
+    Rpc(Vec<RpcSpecification>),
+
     /// The rest of argv[1..], 0 or more arguments
     Trailing,
 }
@@ -76,6 +79,38 @@ impl Arg {
     fn default_vec() -> Vec<Arg> {
         vec![Arg::BinaryName]
     }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum RpcSpecification {
+    /// Open a TCP socket
+    ///
+    /// None for each value means that any value is allowed in the call.
+    /// A specified value restricts to exactly that.
+    OpenTcpSocket {
+        family: Option<AddressFamily>,
+        port: Option<u16>,
+        host: Option<String>,
+    },
+
+    /// Open a UDP socket
+    ///
+    /// None for each value means that any value is allowed in the call.
+    /// A specified value restricts to exactly that.
+    OpenUdpSocket {
+        family: Option<AddressFamily>,
+        port: Option<u16>,
+        host: Option<String>,
+    },
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum AddressFamily {
+    /// IPv4 address
+    Inet,
+
+    /// IPv6 address
+    Inet6,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
