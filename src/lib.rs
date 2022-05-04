@@ -19,6 +19,25 @@ use nix::fcntl::OFlag;
 use nix::sys::socket;
 use nix::unistd;
 
+pub struct PackArgs<'a> {
+    pub spec: &'a Path,
+    pub binary: &'a Path,
+    pub output: &'a Path,
+}
+
+pub fn pack(args: &PackArgs) -> Result<()> {
+    let spec: Specification = if args.spec.ends_with(".json") {
+        let f = std::fs::File::open(args.spec)?;
+        Ok(serde_json::from_reader(f)?)
+    } else {
+        Err(Error::BadSpecType)
+    }?;
+
+    let spec_bin = bincode::serialize(&spec)?;
+
+    Ok(())
+}
+
 pub struct RunArgs<'a> {
     pub spec: Option<&'a Path>,
     pub debug: bool,

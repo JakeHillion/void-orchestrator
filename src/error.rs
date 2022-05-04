@@ -15,6 +15,9 @@ pub enum Error {
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("bincode: {0}")]
+    Bincode(#[from] bincode::Error),
+
     #[error("bad pipe specification: a pipe must have exactly one reader and one writer: {0}")]
     BadPipe(String),
 
