@@ -14,7 +14,7 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nix::sys::signal::{kill, Signal};
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
@@ -24,8 +24,8 @@ const BUFFER_SIZE: usize = 1024;
 
 pub struct Spawner<'a> {
     pub spec: &'a Specification,
-    pub binary: &'a str,
-    pub trailing: &'a Vec<&'a str>,
+    pub binary: &'a Path,
+    pub binary_args: &'a Vec<&'a str>,
     pub debug: bool,
 
     pub pipes: HashMap<String, PipePair>,

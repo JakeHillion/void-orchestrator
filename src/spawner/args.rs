@@ -6,6 +6,7 @@ use crate::{Error, Result};
 use std::ffi::CString;
 use std::fs::File;
 use std::net::TcpListener;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::IntoRawFd;
 
 pub struct PreparedArgs(Vec<PreparedArg>);
@@ -162,7 +163,11 @@ impl PreparedArg {
         trigger: &mut TriggerData,
     ) -> Result<Vec<CString>> {
         match self {
-            PreparedArg::BinaryName => Ok(vec![CString::new(spawner.binary).unwrap()]),
+            PreparedArg::BinaryName => {
+                Ok(vec![
+                    CString::new(spawner.binary.as_os_str().as_bytes()).unwrap()
+                ])
+            }
             PreparedArg::Entrypoint => Ok(vec![CString::new(entrypoint).unwrap()]),
 
             PreparedArg::Pipe(p) => Ok(vec![CString::new(p.into_raw_fd().to_string()).unwrap()]),
@@ -179,7 +184,7 @@ impl PreparedArg {
             }
 
             PreparedArg::Trailing => Ok(spawner
-                .trailing
+                .binary_args
                 .iter()
                 .map(|s| CString::new(*s).unwrap())
                 .collect()),

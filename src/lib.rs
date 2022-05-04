@@ -13,47 +13,23 @@ use specification::Specification;
 use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::io::FromRawFd;
+use std::path::Path;
 
-use clap::{App, AppSettings};
 use nix::fcntl::OFlag;
 use nix::sys::socket;
 use nix::unistd;
 
-pub fn run() -> Result<()> {
-    // process arguments
-    let matches = App::new("clone-shim")
-        .version(env!("GIT_HASH"))
-        .author("Jake Hillion <jake@hillion.co.uk>")
-        .about("Launch a multi entrypoint app, cloning as requested by an external specification or the ELF.")
-        .arg(clap::Arg::new("spec").long("specification").short('s').help("Provide the specification as an external JSON file.").takes_value(true))
-        .setting(AppSettings::TrailingVarArg)
-        .arg(clap::Arg::new("verbose").long("verbose").short('v').help("Use verbose logging.").takes_value(false))
-        .arg(clap::Arg::new("debug").long("debug").short('d').help("Stop each spawned application process so that it can be attached to.").takes_value(false))
-        .arg(clap::Arg::new("binary").index(1).help("Binary and arguments to launch with the shim").required(true).multiple_values(true))
-        .get_matches();
+pub struct RunArgs<'a> {
+    pub spec: Option<&'a Path>,
+    pub debug: bool,
 
-    let (binary, trailing) = {
-        let mut argv = matches.values_of("binary").unwrap();
+    pub binary: &'a Path,
+    pub binary_args: Vec<&'a str>,
+}
 
-        let binary = argv.next().unwrap();
-        let trailing: Vec<&str> = argv.collect();
-
-        (binary, trailing)
-    };
-
-    // setup logging
-    let env = env_logger::Env::new().filter_or(
-        "LOG",
-        if matches.is_present("verbose") {
-            "debug"
-        } else {
-            "warn"
-        },
-    );
-    env_logger::init_from_env(env);
-
+pub fn run(args: &RunArgs) -> Result<()> {
     // parse the specification
-    let spec: Specification = if let Some(m) = matches.value_of("spec") {
+    let spec: Specification = if let Some(m) = args.spec {
         if m.ends_with(".json") {
             let f = std::fs::File::open(m)?;
             Ok(serde_json::from_reader(f)?)
@@ -75,13 +51,11 @@ pub fn run() -> Result<()> {
     let sockets = create_sockets(sockets)?;
 
     // spawn all processes
-    let debug = matches.is_present("debug");
-
     Spawner {
         spec: &spec,
-        binary,
-        trailing: &trailing,
-        debug,
+        binary: args.binary,
+        binary_args: &args.binary_args,
+        debug: args.debug,
 
         pipes,
         sockets,
