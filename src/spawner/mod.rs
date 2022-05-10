@@ -109,6 +109,16 @@ impl<'a> Spawner<'a> {
 
                     self.prepare_env(&mut builder, &entrypoint.environment);
 
+                    for env in &entrypoint.environment {
+                        if let Environment::Filesystem {
+                            host_path,
+                            environment_path: _,
+                        } = env
+                        {
+                            builder.mount(host_path, host_path);
+                        }
+                    }
+
                     let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
                         Ok(()) => std::process::exit(exitcode::OK),
                         Err(e) => {
@@ -133,7 +143,15 @@ impl<'a> Spawner<'a> {
                     builder.mount(binary, "/entrypoint");
                     builder.keep_fd(&socket);
 
-                    self.prepare_env(&mut builder, &entrypoint.environment);
+                    for env in &entrypoint.environment {
+                        if let Environment::Filesystem {
+                            host_path,
+                            environment_path: _,
+                        } = env
+                        {
+                            builder.mount(host_path, host_path);
+                        }
+                    }
 
                     let closure = || match self.file_socket_trigger(socket, entrypoint, name) {
                         Ok(()) => std::process::exit(exitcode::OK),
@@ -169,24 +187,7 @@ impl<'a> Spawner<'a> {
             let mut builder = VoidBuilder::new();
             builder.mount("/entrypoint", "/entrypoint");
 
-            // TODO: move the weird logic out of this part
-            for env in &spec.environment {
-                match env {
-                    Environment::Filesystem {
-                        host_path: _host_path,
-                        environment_path,
-                    } => {
-                        builder.mount(environment_path, environment_path);
-                    }
-
-                    Environment::Hostname(name) => {
-                        builder.set_hostname(name);
-                    }
-                    Environment::DomainName(name) => {
-                        builder.set_domain_name(name);
-                    }
-                }
-            }
+            self.prepare_env(&mut builder, &spec.environment);
 
             let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
 
@@ -244,24 +245,7 @@ impl<'a> Spawner<'a> {
                             builder.keep_fd(fd);
                         }
 
-                        // TODO: move the weird logic out of this part
-                        for env in &spec.environment {
-                            match env {
-                                Environment::Filesystem {
-                                    host_path: _host_path,
-                                    environment_path,
-                                } => {
-                                    builder.mount(environment_path, environment_path);
-                                }
-
-                                Environment::Hostname(name) => {
-                                    builder.set_hostname(name);
-                                }
-                                Environment::DomainName(name) => {
-                                    builder.set_domain_name(name);
-                                }
-                            }
-                        }
+                        self.prepare_env(&mut builder, &spec.environment);
 
                         let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
 
