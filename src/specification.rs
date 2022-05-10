@@ -114,6 +114,9 @@ pub enum Environment {
         host_path: PathBuf,
         environment_path: PathBuf,
     },
+
+    Hostname(String),
+    DomainName(String),
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

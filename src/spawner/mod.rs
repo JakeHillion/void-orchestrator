@@ -169,6 +169,7 @@ impl<'a> Spawner<'a> {
             let mut builder = VoidBuilder::new();
             builder.mount("/entrypoint", "/entrypoint");
 
+            // TODO: move the weird logic out of this part
             for env in &spec.environment {
                 match env {
                     Environment::Filesystem {
@@ -176,6 +177,13 @@ impl<'a> Spawner<'a> {
                         environment_path,
                     } => {
                         builder.mount(environment_path, environment_path);
+                    }
+
+                    Environment::Hostname(name) => {
+                        builder.set_hostname(name);
+                    }
+                    Environment::DomainName(name) => {
+                        builder.set_domain_name(name);
                     }
                 }
             }
@@ -236,6 +244,7 @@ impl<'a> Spawner<'a> {
                             builder.keep_fd(fd);
                         }
 
+                        // TODO: move the weird logic out of this part
                         for env in &spec.environment {
                             match env {
                                 Environment::Filesystem {
@@ -243,6 +252,13 @@ impl<'a> Spawner<'a> {
                                     environment_path,
                                 } => {
                                     builder.mount(environment_path, environment_path);
+                                }
+
+                                Environment::Hostname(name) => {
+                                    builder.set_hostname(name);
+                                }
+                                Environment::DomainName(name) => {
+                                    builder.set_domain_name(name);
                                 }
                             }
                         }
@@ -306,6 +322,13 @@ impl<'a> Spawner<'a> {
                     environment_path,
                 } => {
                     builder.mount(host_path, environment_path);
+                }
+
+                Environment::Hostname(name) => {
+                    builder.set_hostname(name);
+                }
+                Environment::DomainName(name) => {
+                    builder.set_domain_name(name);
                 }
             }
         }

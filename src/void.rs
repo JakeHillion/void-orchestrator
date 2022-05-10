@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use nix::fcntl::{FcntlArg, FdFlag};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sys::signal::{signal, SigHandler, Signal};
-use nix::unistd::{close, getgid, getuid, pivot_root, Gid, Pid, Uid};
+use nix::unistd::{close, getgid, getuid, pivot_root, sethostname, Gid, Pid, Uid};
 
 use close_fds::CloseFdsBuilder;
 
@@ -28,6 +28,9 @@ impl fmt::Display for VoidHandle {
 }
 
 pub struct VoidBuilder {
+    hostname: Option<String>,
+    domain_name: Option<String>,
+
     mounts: HashMap<PathBuf, PathBuf>,
     fds: HashSet<RawFd>,
 }
@@ -35,9 +38,21 @@ pub struct VoidBuilder {
 impl VoidBuilder {
     pub fn new() -> VoidBuilder {
         VoidBuilder {
+            hostname: None,
+            domain_name: None,
             mounts: HashMap::new(),
             fds: HashSet::new(),
         }
+    }
+
+    pub fn set_hostname<T: Into<String>>(&mut self, hostname: T) -> &mut Self {
+        self.hostname = Some(hostname.into());
+        self
+    }
+
+    pub fn set_domain_name<T: Into<String>>(&mut self, domain_name: T) -> &mut Self {
+        self.domain_name = Some(domain_name.into());
+        self
     }
 
     pub fn mount<T1: AsRef<Path>, T2: AsRef<Path>>(&mut self, src: T1, dst: T2) -> &mut Self {
@@ -128,7 +143,16 @@ impl VoidBuilder {
      * parent values for each of these.
      */
     fn void_uts_namespace(&self) -> Result<()> {
-        // TODO: void uts namespace
+        sethostname(self.hostname.as_deref().unwrap_or("void")).map_err(|e| Error::Nix {
+            msg: "sethostname",
+            src: e,
+        })?;
+
+        setdomainname(self.domain_name.as_deref().unwrap_or("(none)")).map_err(|e| Error::Nix {
+            msg: "setdomainname",
+            src: e,
+        })?;
+
         Ok(())
     }
 
@@ -341,4 +365,14 @@ impl VoidBuilder {
 
         Ok(())
     }
+}
+
+pub fn setdomainname<S: AsRef<std::ffi::OsStr>>(name: S) -> nix::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let ptr = name.as_ref().as_bytes().as_ptr() as *const libc::c_char;
+    let len = name.as_ref().len() as libc::size_t;
+
+    let res = unsafe { libc::setdomainname(ptr, len) };
+    nix::Error::result(res).map(drop)
 }
