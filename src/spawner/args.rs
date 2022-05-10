@@ -37,11 +37,15 @@ impl PreparedArgs {
      * for things like network sockets. update the builder
      * with newly passed fds.
      */
-    pub fn prepare_ambient(builder: &mut VoidBuilder, args: &[Arg]) -> Result<Self> {
+    pub fn prepare_ambient(
+        spawner: &Spawner,
+        builder: &mut VoidBuilder,
+        args: &[Arg],
+    ) -> Result<Self> {
         let mut v = Vec::with_capacity(args.len());
 
         for arg in args {
-            v.push(PreparedArg::prepare_ambient(builder, arg)?);
+            v.push(PreparedArg::prepare_ambient(spawner, builder, arg)?);
         }
 
         Ok(PreparedArgs(v))
@@ -113,24 +117,28 @@ impl PreparedArg {
                 PreparedArg::Pipe(pipe)
             }
 
-            Arg::FileSocket(s) => {
-                let socket = match s {
-                    FileSocket::Rx(s) => spawner.sockets.get_mut(s).unwrap().take_read(),
-                    FileSocket::Tx(s) => spawner.sockets.get_mut(s).unwrap().take_write(),
-                }?;
+            Arg::FileSocket(FileSocket::Rx(s)) => {
+                let socket = spawner.sockets.get_mut(s).unwrap().take_read()?;
 
                 builder.keep_fd(&socket);
                 PreparedArg::FileSocket(socket)
             }
 
-            arg => Self::prepare_ambient(builder, arg)?,
+            arg => Self::prepare_ambient(spawner, builder, arg)?,
         })
     }
 
-    fn prepare_ambient(builder: &mut VoidBuilder, arg: &Arg) -> Result<Self> {
+    fn prepare_ambient(spawner: &Spawner, builder: &mut VoidBuilder, arg: &Arg) -> Result<Self> {
         Ok(match arg {
             Arg::Pipe(p) => return Err(Error::BadPipe(p.get_name().to_string())),
-            Arg::FileSocket(s) => return Err(Error::BadFileSocket(s.get_name().to_string())),
+            Arg::FileSocket(FileSocket::Rx(s)) => return Err(Error::BadFileSocket(s.to_string())),
+
+            Arg::FileSocket(FileSocket::Tx(s)) => {
+                let socket = spawner.sockets.get(s).unwrap().write()?;
+
+                builder.keep_fd(&socket);
+                PreparedArg::FileSocket(socket)
+            }
 
             Arg::File(path) => {
                 let fd = File::open(path)?;

@@ -12,7 +12,7 @@ use specification::Specification;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::os::unix::io::FromRawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 
 use nix::fcntl::OFlag;
@@ -135,10 +135,11 @@ impl PipePair {
             src: e,
         })?;
 
-        // safe to create files given the successful return of pipe(2)
         Ok(PipePair {
             name: name.to_string(),
+            // SAFETY: valid new fd as pipe2(2) returned successfully
             read: Some(unsafe { File::from_raw_fd(read) }),
+            // SAFETY: valid new fd as pipe2(2) returned successfully
             write: Some(unsafe { File::from_raw_fd(write) }),
         })
     }
@@ -160,7 +161,7 @@ pub struct SocketPair {
     name: String,
 
     read: Option<File>,
-    write: Option<File>,
+    write: File,
 }
 
 impl SocketPair {
@@ -176,23 +177,26 @@ impl SocketPair {
             src: e,
         })?;
 
-        // safe to create files given the successful return of socketpair(2)
         Ok(SocketPair {
             name: name.to_string(),
+            // SAFETY: valid new fd as socketpair(2) returned successfully
             read: Some(unsafe { File::from_raw_fd(read) }),
-            write: Some(unsafe { File::from_raw_fd(write) }),
+            // SAFETY: valid new fd as socketpair(2) returned successfully
+            write: unsafe { File::from_raw_fd(write) },
         })
     }
 
     fn take_read(&mut self) -> Result<File> {
         self.read
             .take()
-            .ok_or_else(|| Error::BadPipe(self.name.to_string()))
+            .ok_or_else(|| Error::BadFileSocket(self.name.to_string()))
     }
 
-    fn take_write(&mut self) -> Result<File> {
-        self.write
-            .take()
-            .ok_or_else(|| Error::BadPipe(self.name.to_string()))
+    fn write(&self) -> Result<File> {
+        let dup_fd = nix::unistd::dup(self.write.as_raw_fd())
+            .map_err(|e| Error::Nix { msg: "dup", src: e })?;
+
+        // SAFETY: valid new fd as dup(2) returned successfully
+        Ok(unsafe { File::from_raw_fd(dup_fd) })
     }
 }

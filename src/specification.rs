@@ -99,15 +99,6 @@ pub enum FileSocket {
     Tx(String),
 }
 
-impl FileSocket {
-    pub fn get_name(&self) -> &str {
-        match self {
-            FileSocket::Rx(n) => n,
-            FileSocket::Tx(n) => n,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub enum Environment {
     Filesystem {
@@ -204,6 +195,31 @@ impl Specification {
 
         if let Some(pipe) = write_set.into_iter().next() {
             return Err(Error::BadPipe(pipe.to_string()));
+        }
+
+        // validate sockets match
+        let (read, write) = self.sockets();
+        let mut read_set = HashSet::with_capacity(read.len());
+
+        for socket in read {
+            if !read_set.insert(socket) {
+                return Err(Error::BadFileSocket(socket.to_string()));
+            }
+        }
+
+        let mut write_set = HashSet::with_capacity(write.len());
+        for socket in write {
+            write_set.insert(socket);
+        }
+
+        for socket in &read_set {
+            if !write_set.contains(socket) {
+                return Err(Error::BadFileSocket(socket.to_string()));
+            }
+        }
+
+        if let Some(socket) = (&write_set - &read_set).into_iter().next() {
+            return Err(Error::BadFileSocket(socket.to_string()));
         }
 
         // validate trigger arguments make sense

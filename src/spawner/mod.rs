@@ -169,7 +169,7 @@ impl<'a> Spawner<'a> {
 
             self.prepare_env(&mut builder, &spec.environment);
 
-            let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
+            let args = PreparedArgs::prepare_ambient(self, &mut builder, &spec.args)?;
 
             let closure =
                 || {
@@ -234,7 +234,7 @@ impl<'a> Spawner<'a> {
 
                         self.prepare_env(&mut builder, &spec.environment);
 
-                        let args = PreparedArgs::prepare_ambient(&mut builder, &spec.args)?;
+                        let args = PreparedArgs::prepare_ambient(self, &mut builder, &spec.args)?;
 
                         let closure = || {
                             if self.debug {
