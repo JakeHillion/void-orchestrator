@@ -30,7 +30,7 @@ pub struct RunArgs<'a> {
 pub fn run(args: &RunArgs) -> Result<()> {
     // parse the specification
     let spec: Specification = if let Some(m) = args.spec {
-        if m.ends_with(".json") {
+        if m.extension().map(|e| e == "json") == Some(true) {
             let f = std::fs::File::open(m)?;
             Ok(serde_json::from_reader(f)?)
         } else {
