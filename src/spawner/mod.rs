@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Read;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
 
 use nix::sys::signal::{kill, Signal};
@@ -21,6 +21,7 @@ use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::unistd::{self, Pid};
 
 const BUFFER_SIZE: usize = 1024;
+const MAX_FILE_DESCRIPTORS: usize = 16;
 
 pub struct Spawner<'a> {
     pub spec: &'a Specification,
@@ -129,7 +130,7 @@ impl<'a> Spawner<'a> {
 
                     let void = builder.spawn(closure)?;
                     info!(
-                        "prepared pipe trigger for entrypoint `{}` as {}",
+                        "spawned pipe trigger for entrypoint `{}` as {}",
                         name.as_str(),
                         void
                     );
@@ -163,7 +164,7 @@ impl<'a> Spawner<'a> {
 
                     let void = builder.spawn(closure)?;
                     info!(
-                        "prepared socket trigger for entrypoint `{}` as {}",
+                        "spawned socket trigger for entrypoint `{}` as {}",
                         name.as_str(),
                         void
                     );
@@ -216,17 +217,24 @@ impl<'a> Spawner<'a> {
                     }
                 };
 
-            builder.spawn(closure)?;
+            let void = builder.spawn(closure)?;
+            info!("spawned entrypoint `{}` as {}", name, void);
         }
     }
 
     fn file_socket_trigger(&self, socket: File, spec: &Entrypoint, name: &str) -> Result<()> {
+        let mut cmsg_buf = nix::cmsg_space!([RawFd; MAX_FILE_DESCRIPTORS]);
+
         loop {
-            let msg = recvmsg(socket.as_raw_fd(), &[], None, MsgFlags::empty()).map_err(|e| {
-                Error::Nix {
-                    msg: "recvmsg",
-                    src: e,
-                }
+            let msg = recvmsg(
+                socket.as_raw_fd(),
+                &[],
+                Some(&mut cmsg_buf),
+                MsgFlags::empty(),
+            )
+            .map_err(|e| Error::Nix {
+                msg: "recvmsg",
+                src: e,
             })?;
 
             debug!("triggering from socket recvmsg");
@@ -273,7 +281,8 @@ impl<'a> Spawner<'a> {
                             }
                         };
 
-                        builder.spawn(closure)?;
+                        let void = builder.spawn(closure)?;
+                        info!("spawned entrypoint `{}` as {}", name, void);
                     }
                     _ => unimplemented!(),
                 }
