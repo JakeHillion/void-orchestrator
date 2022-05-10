@@ -18,13 +18,22 @@ pub enum Error {
     #[error("bincode: {0}")]
     Bincode(#[from] bincode::Error),
 
+    #[error("elf: read: {0}")]
+    ElfRead(#[from] object::read::Error),
+
+    #[error("elf: write: {0}")]
+    ElfWrite(#[from] object::write::Error),
+
     #[error("bad pipe specification: a pipe must have exactly one reader and one writer: {0}")]
     BadPipe(String),
 
     #[error("bad socket specification: a socket must have exactly one reader and one writer: {0}")]
     BadFileSocket(String),
 
-    #[error("bad specification type: only .json files are supported")]
+    #[error("no specification provided")]
+    NoSpecification,
+
+    #[error("bad specification type: only json files are supported")]
     BadSpecType,
 
     #[error("bad trigger argument: this entrypoint is not triggered by something with arguments")]

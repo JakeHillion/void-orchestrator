@@ -2,6 +2,7 @@ use log::{debug, info};
 
 pub mod clone;
 mod error;
+mod pack;
 mod spawner;
 mod specification;
 mod void;
@@ -18,7 +19,6 @@ use std::path::Path;
 use nix::fcntl::OFlag;
 use nix::sys::socket;
 use nix::unistd;
-
 pub struct PackArgs<'a> {
     pub spec: &'a Path,
     pub binary: &'a Path,
@@ -26,16 +26,14 @@ pub struct PackArgs<'a> {
 }
 
 pub fn pack(args: &PackArgs) -> Result<()> {
-    let spec: Specification = if args.spec.ends_with(".json") {
+    let spec: Specification = if args.spec.extension().map(|e| e == "json") == Some(true) {
         let f = std::fs::File::open(args.spec)?;
         Ok(serde_json::from_reader(f)?)
     } else {
         Err(Error::BadSpecType)
     }?;
 
-    let spec_bin = bincode::serialize(&spec)?;
-
-    Ok(())
+    pack::pack_binary(args.binary, &spec, args.output)
 }
 
 pub struct RunArgs<'a> {
@@ -56,7 +54,12 @@ pub fn run(args: &RunArgs) -> Result<()> {
             Err(Error::BadSpecType)
         }
     } else {
-        unimplemented!("reading spec from the elf is unimplemented")
+        let spec = pack::extract_specification(args.binary)?;
+        if let Some(s) = spec {
+            Ok(s)
+        } else {
+            Err(Error::NoSpecification)
+        }
     }?;
 
     debug!("specification read: {:?}", &spec);
