@@ -80,8 +80,15 @@ impl VoidBuilder {
 
             let result = {
                 self.void_user_namespace(parent_uid, parent_gid)?; // first to regain full capabilities
-                self.void_files()?;
+
+                self.void_file_descriptors()?;
+
+                self.void_ipc_namespace()?;
+                self.void_uts_namespace()?;
+                self.void_network_namespace()?;
+                self.void_pid_namespace()?;
                 self.void_mount_namespace()?;
+                self.void_cgroup_namespace()?;
 
                 Ok::<(), Error>(())
             };
@@ -106,76 +113,48 @@ impl VoidBuilder {
         Ok(VoidHandle { pid: child })
     }
 
-    fn void_user_namespace(&self, parent_uid: Uid, parent_gid: Gid) -> Result<()> {
-        debug!("mapping root uid to {} in the parent", parent_uid);
-        let mut uid_map = fs::OpenOptions::new()
-            .read(false)
-            .write(true)
-            .open("/proc/self/uid_map")?;
-
-        uid_map.write_all(format!("0 {} 1\n", parent_uid).as_ref())?;
-        close(uid_map.into_raw_fd()).map_err(|e| Error::Nix {
-            msg: "close",
-            src: e,
-        })?;
-
-        debug!("writing deny to setgroups");
-        let mut setgroups = fs::OpenOptions::new()
-            .read(false)
-            .write(true)
-            .open("/proc/self/setgroups")?;
-
-        setgroups.write_all("deny\n".as_bytes())?;
-        close(setgroups.into_raw_fd()).map_err(|e| Error::Nix {
-            msg: "close",
-            src: e,
-        })?;
-
-        debug!("mapping root gid to {} in the parent", parent_gid);
-        let mut gid_map = fs::OpenOptions::new()
-            .read(false)
-            .write(true)
-            .open("/proc/self/gid_map")?;
-
-        gid_map.write_all(format!("0 {} 1\n", parent_gid).as_ref())?;
-        close(gid_map.into_raw_fd()).map_err(|e| Error::Nix {
-            msg: "close",
-            src: e,
-        })?;
-
+    /**
+     * Voiding an ipc namespace requires no work. A newly created ipc namespace
+     * contains nothing, and there is no sharing of ipc objects between
+     * namespaces.
+     */
+    fn void_ipc_namespace(&self) -> Result<()> {
         Ok(())
     }
 
-    // per-namespace void creation
-    fn void_files(&self) -> Result<()> {
-        let mut closer = CloseFdsBuilder::new();
-
-        let keep: Box<[RawFd]> = self.fds.iter().copied().collect();
-        closer.keep_fds(&keep);
-
-        unsafe {
-            closer.closefrom(3);
-        }
-
-        for fd in keep.as_ref() {
-            let mut flags = FdFlag::from_bits_truncate(
-                nix::fcntl::fcntl(*fd, FcntlArg::F_GETFD).map_err(|e| Error::Nix {
-                    msg: "fcntl",
-                    src: e,
-                })?,
-            );
-
-            flags.remove(FdFlag::FD_CLOEXEC);
-
-            nix::fcntl::fcntl(*fd, FcntlArg::F_SETFD(flags)).map_err(|e| Error::Nix {
-                msg: "fcntl",
-                src: e,
-            })?;
-        }
-
+    /**
+     * Voiding a uts namespace requires setting the host and domain names to
+     * something specific. A newly created uts namespace has copies of the
+     * parent values for each of these.
+     */
+    fn void_uts_namespace(&self) -> Result<()> {
+        // TODO: void uts namespace
         Ok(())
     }
 
+    /**
+     * Voiding a network namespace requires no work. A newly created network
+     * namespace contains only a loopback adapter, so is already a void.
+     */
+    fn void_network_namespace(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /**
+     * Voiding a pid namespace requires no work. Creating a pid namespace means
+     * the first process created is PID 1, which clone does immediately.
+     */
+    fn void_pid_namespace(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /**
+     * Voiding a mount namespace replaces the current root with a new `tmpfs`.
+     * This requires pivoting the old root and setting it to private before
+     * unmounting it from the mount namespace. Filling the mount namespace with
+     * bind mounts must also be done here, as the mounts are completely
+     * unavailable after unmounting the old root.
+     */
     fn void_mount_namespace(&self) -> Result<()> {
         // change the propagation type of the old root to private
         mount(
@@ -263,20 +242,6 @@ impl VoidBuilder {
             })?;
         }
 
-        // recursively remount the old root as private to avoid shared unmounting
-        // the submounts (because MNT_DETACH is recursive)
-        mount(
-            Option::<&str>::None,
-            &old_root,
-            Option::<&str>::None,
-            MsFlags::MS_REC | MsFlags::MS_PRIVATE,
-            Option::<&str>::None,
-        )
-        .map_err(|e| Error::Nix {
-            msg: "mount",
-            src: e,
-        })?;
-
         // unmount the old root
         umount2(&old_root, MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
             msg: "umount2",
@@ -285,6 +250,94 @@ impl VoidBuilder {
 
         // delete the old root mount point
         fs::remove_dir(&old_root)?;
+
+        Ok(())
+    }
+
+    /**
+     * Voiding the user namespace requires writing to two mapping files, and disabling
+     * setgid(2). The contents of the mapping files map back to the parent_uid and
+     * parent_gid, which must be passed in as they are lost when the new namespace is
+     * created.
+     */
+    fn void_user_namespace(&self, parent_uid: Uid, parent_gid: Gid) -> Result<()> {
+        debug!("mapping root uid to {} in the parent", parent_uid);
+        let mut uid_map = fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open("/proc/self/uid_map")?;
+
+        uid_map.write_all(format!("0 {} 1\n", parent_uid).as_ref())?;
+        close(uid_map.into_raw_fd()).map_err(|e| Error::Nix {
+            msg: "close",
+            src: e,
+        })?;
+
+        debug!("writing deny to setgroups");
+        let mut setgroups = fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open("/proc/self/setgroups")?;
+
+        setgroups.write_all("deny\n".as_bytes())?;
+        close(setgroups.into_raw_fd()).map_err(|e| Error::Nix {
+            msg: "close",
+            src: e,
+        })?;
+
+        debug!("mapping root gid to {} in the parent", parent_gid);
+        let mut gid_map = fs::OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open("/proc/self/gid_map")?;
+
+        gid_map.write_all(format!("0 {} 1\n", parent_gid).as_ref())?;
+        close(gid_map.into_raw_fd()).map_err(|e| Error::Nix {
+            msg: "close",
+            src: e,
+        })?;
+
+        Ok(())
+    }
+
+    /**
+     * Voiding cgroups involves placing the process into a leaf before creating a
+     * cgroup namespace. This ensures the view of the process does not exceed itself.
+     */
+    fn void_cgroup_namespace(&self) -> Result<()> {
+        // TODO: void cgroup namespace
+        Ok(())
+    }
+
+    /**
+     * Voiding file descriptors closes all but specified file descriptors, and ensures
+     * the remaining ones are not close-on-exec.
+     */
+    fn void_file_descriptors(&self) -> Result<()> {
+        let mut closer = CloseFdsBuilder::new();
+
+        let keep: Box<[RawFd]> = self.fds.iter().copied().collect();
+        closer.keep_fds(&keep);
+
+        unsafe {
+            closer.closefrom(3);
+        }
+
+        for fd in keep.as_ref() {
+            let mut flags = FdFlag::from_bits_truncate(
+                nix::fcntl::fcntl(*fd, FcntlArg::F_GETFD).map_err(|e| Error::Nix {
+                    msg: "fcntl",
+                    src: e,
+                })?,
+            );
+
+            flags.remove(FdFlag::FD_CLOEXEC);
+
+            nix::fcntl::fcntl(*fd, FcntlArg::F_SETFD(flags)).map_err(|e| Error::Nix {
+                msg: "fcntl",
+                src: e,
+            })?;
+        }
 
         Ok(())
     }
