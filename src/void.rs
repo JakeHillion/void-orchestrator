@@ -33,6 +33,8 @@ pub struct VoidBuilder {
 
     mounts: HashMap<PathBuf, PathBuf>,
     fds: HashSet<RawFd>,
+
+    remount_proc: bool,
 }
 
 impl VoidBuilder {
@@ -42,6 +44,7 @@ impl VoidBuilder {
             domain_name: None,
             mounts: HashMap::new(),
             fds: HashSet::new(),
+            remount_proc: false,
         }
     }
 
@@ -62,6 +65,11 @@ impl VoidBuilder {
 
     pub fn keep_fd(&mut self, fd: &impl AsRawFd) -> &mut Self {
         self.fds.insert(fd.as_raw_fd());
+        self
+    }
+
+    pub fn remount_proc(&mut self) -> &mut Self {
+        self.remount_proc = true;
         self
     }
 
@@ -252,12 +260,29 @@ impl VoidBuilder {
                 fs::write(&dst, b"")?;
             }
 
-            // bind mount
+            // rbind mount
             mount(
                 Some(&src),
                 &dst,
                 Option::<&str>::None,
-                MsFlags::MS_BIND,
+                MsFlags::MS_BIND | MsFlags::MS_REC,
+                Option::<&str>::None,
+            )
+            .map_err(|e| Error::Nix {
+                msg: "mount",
+                src: e,
+            })?;
+        }
+
+        // remount proc
+        if self.remount_proc {
+            debug!("remounting /proc`");
+
+            mount(
+                Some("proc"),
+                "/proc",
+                Some("proc"),
+                MsFlags::empty(),
                 Option::<&str>::None,
             )
             .map_err(|e| Error::Nix {

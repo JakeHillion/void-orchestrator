@@ -105,6 +105,8 @@ impl<'a> Spawner<'a> {
                     let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&pipe);
 
+                    builder.mount("/proc", "/proc").remount_proc();
+
                     let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
                         Ok(()) => exitcode::OK,
                         Err(e) => {
@@ -128,6 +130,8 @@ impl<'a> Spawner<'a> {
 
                     let socket = self.sockets.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&socket);
+
+                    builder.mount("/proc", "/proc").remount_proc();
 
                     let closure = || match self.file_socket_trigger(socket, entrypoint, name) {
                         Ok(()) => exitcode::OK,
@@ -326,6 +330,10 @@ impl<'a> Spawner<'a> {
                 }
                 Environment::DomainName(name) => {
                     builder.set_domain_name(name);
+                }
+
+                Environment::Procfs => {
+                    builder.mount("/proc", "/proc").remount_proc();
                 }
             }
         }

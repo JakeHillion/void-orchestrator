@@ -117,6 +117,8 @@ pub enum Environment {
 
     Hostname(String),
     DomainName(String),
+
+    Procfs,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
