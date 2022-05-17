@@ -1,9 +1,10 @@
-use log::{debug, error};
+use log::{debug, error, info, trace};
 
 use crate::clone::{clone3, CloneArgs, CloneFlags};
 use crate::{Error, Result};
 
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -102,15 +103,23 @@ impl VoidBuilder {
             })?;
 
             let result = {
+                debug!("voiding user namespace...");
                 self.void_user_namespace(parent_uid, parent_gid)?; // first to regain full capabilities
 
+                debug!("voiding file descriptors...");
                 self.void_file_descriptors()?;
 
+                debug!("voiding ipc namespace...");
                 self.void_ipc_namespace()?;
+                debug!("voiding uts namespace...");
                 self.void_uts_namespace()?;
+                debug!("voiding network namespace...");
                 self.void_network_namespace()?;
+                debug!("voiding pid namespace...");
                 self.void_pid_namespace()?;
+                debug!("voiding mount namespace...");
                 self.void_mount_namespace()?;
+                debug!("voiding cgroup namespace...");
                 self.void_cgroup_namespace()?;
 
                 Ok::<(), Error>(())
@@ -120,6 +129,7 @@ impl VoidBuilder {
                 error!("error preparing void: {}", e);
                 std::process::exit(-1)
             } else {
+                info!("successfully prepared void");
                 std::process::exit(child_fn())
             }
         }
@@ -188,7 +198,7 @@ impl VoidBuilder {
      * unavailable after unmounting the old root.
      */
     fn void_mount_namespace(&self) -> Result<()> {
-        // change the propagation type of the old root to private
+        trace!("changing the propagation type of the old root to private");
         mount(
             Option::<&str>::None,
             "/",
@@ -201,10 +211,21 @@ impl VoidBuilder {
             src: e,
         })?;
 
-        // create and consume a tmpdir to mount a tmpfs into
-        let new_root = tempfile::tempdir()?.into_path();
+        trace!("creating tmpdir for new root");
+        let tmp_base = {
+            let env_dir = env::temp_dir();
+            if env_dir.exists() {
+                env_dir
+            } else {
+                debug!("env_dir does not exist, assuming `/` as the base");
+                "/".into()
+            }
+        };
 
-        // mount a tmpfs as the new root
+        // consume so it does not attempt to delete a folder which no longer exists
+        let new_root = tempfile::tempdir_in(tmp_base)?.into_path();
+
+        trace!("mounting a new root tmpfs at `{:?}`", &new_root);
         mount(
             Some("tmpfs"),
             &new_root,
@@ -217,13 +238,12 @@ impl VoidBuilder {
             src: e,
         })?;
 
-        // prepare a subdirectory to pivot the old root into
-        let old_root = new_root.join("old_root/");
-        debug!("new_root: {:?}; put_old: {:?}", &new_root, &old_root);
-        fs::create_dir(&old_root)?;
+        let put_old = new_root.join("old_root/");
+        debug!("new_root: {:?}; put_old: {:?}", &new_root, &put_old);
+        fs::create_dir_all(&put_old)?;
 
-        // pivot the old root into a subdirectory of the new root
-        pivot_root(&new_root, &old_root).map_err(|e| Error::Nix {
+        trace!("pivoting old root into a subdirectory of new root");
+        pivot_root(&new_root, &put_old).map_err(|e| Error::Nix {
             msg: "pivot_root",
             src: e,
         })?;
@@ -231,10 +251,10 @@ impl VoidBuilder {
         let new_root = PathBuf::from("/");
         let old_root = PathBuf::from("/old_root/");
 
-        // chdir after
+        trace!("changing root directory to new root");
         std::env::set_current_dir(&new_root)?;
 
-        // mount paths before unmounting old_root
+        trace!("creating bind mounts before unmounting");
         for (src, dst) in &self.mounts {
             let mut src = old_root.join(src.strip_prefix("/").unwrap_or(src));
             let dst = new_root.join(dst.strip_prefix("/").unwrap_or(dst));
