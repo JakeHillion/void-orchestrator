@@ -4,7 +4,7 @@ mod args;
 
 use args::PreparedArgs;
 
-use crate::specification::{Entrypoint, Environment, Specification, Trigger};
+use crate::specification::{Arg, Entrypoint, Environment, Specification, Trigger};
 use crate::void::VoidBuilder;
 use crate::{Error, Result};
 use crate::{PipePair, SocketPair};
@@ -100,7 +100,7 @@ impl<'a> Spawner<'a> {
                 Trigger::Pipe(s) => {
                     let mut builder = VoidBuilder::new();
                     self.mount_entrypoint(&mut builder, self.binary)?;
-                    self.forward_mounts(&mut builder, &entrypoint.environment);
+                    self.forward_mounts(&mut builder, &entrypoint.environment, &entrypoint.args);
 
                     let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&pipe);
@@ -124,7 +124,7 @@ impl<'a> Spawner<'a> {
                 Trigger::FileSocket(s) => {
                     let mut builder = VoidBuilder::new();
                     self.mount_entrypoint(&mut builder, self.binary)?;
-                    self.forward_mounts(&mut builder, &entrypoint.environment);
+                    self.forward_mounts(&mut builder, &entrypoint.environment, &entrypoint.args);
 
                     let socket = self.sockets.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&socket);
@@ -288,6 +288,7 @@ impl<'a> Spawner<'a> {
         &self,
         builder: &mut VoidBuilder,
         environment: impl IntoIterator<Item = &'b Environment>,
+        arguments: impl IntoIterator<Item = &'b Arg>,
     ) {
         for env in environment {
             if let Environment::Filesystem {
@@ -295,6 +296,12 @@ impl<'a> Spawner<'a> {
                 environment_path: _,
             } = env
             {
+                builder.mount(host_path, host_path);
+            }
+        }
+
+        for arg in arguments {
+            if let Arg::File(host_path) = arg {
                 builder.mount(host_path, host_path);
             }
         }
