@@ -65,10 +65,7 @@ impl<'a> Spawner<'a> {
             match &entrypoint.trigger {
                 Trigger::Startup => {
                     let mut builder = VoidBuilder::new();
-
-                    let binary = PathBuf::from(self.binary).canonicalize()?;
-                    builder.mount(binary, "/entrypoint");
-
+                    self.mount_entrypoint(&mut builder, self.binary)?;
                     self.prepare_env(&mut builder, &entrypoint.environment);
 
                     let args =
@@ -101,30 +98,18 @@ impl<'a> Spawner<'a> {
                 }
 
                 Trigger::Pipe(s) => {
-                    let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
-                    let binary = PathBuf::from(self.binary).canonicalize()?;
-
                     let mut builder = VoidBuilder::new();
-                    builder.mount(binary, "/entrypoint");
+                    self.mount_entrypoint(&mut builder, self.binary)?;
+                    self.forward_mounts(&mut builder, &entrypoint.environment);
+
+                    let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&pipe);
 
-                    self.prepare_env(&mut builder, &entrypoint.environment);
-
-                    for env in &entrypoint.environment {
-                        if let Environment::Filesystem {
-                            host_path,
-                            environment_path: _,
-                        } = env
-                        {
-                            builder.mount(host_path, host_path);
-                        }
-                    }
-
                     let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
-                        Ok(()) => std::process::exit(exitcode::OK),
+                        Ok(()) => exitcode::OK,
                         Err(e) => {
                             error!("error in pipe_trigger: {}", e);
-                            std::process::exit(1)
+                            1
                         }
                     };
 
@@ -137,28 +122,18 @@ impl<'a> Spawner<'a> {
                 }
 
                 Trigger::FileSocket(s) => {
-                    let socket = self.sockets.get_mut(s).unwrap().take_read()?;
-                    let binary = PathBuf::from(self.binary).canonicalize()?;
-
                     let mut builder = VoidBuilder::new();
-                    builder.mount(binary, "/entrypoint");
+                    self.mount_entrypoint(&mut builder, self.binary)?;
+                    self.forward_mounts(&mut builder, &entrypoint.environment);
+
+                    let socket = self.sockets.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&socket);
 
-                    for env in &entrypoint.environment {
-                        if let Environment::Filesystem {
-                            host_path,
-                            environment_path: _,
-                        } = env
-                        {
-                            builder.mount(host_path, host_path);
-                        }
-                    }
-
                     let closure = || match self.file_socket_trigger(socket, entrypoint, name) {
-                        Ok(()) => std::process::exit(exitcode::OK),
+                        Ok(()) => exitcode::OK,
                         Err(e) => {
                             error!("error in file_socket_trigger: {}", e);
-                            std::process::exit(1)
+                            1
                         }
                     };
 
@@ -291,16 +266,38 @@ impl<'a> Spawner<'a> {
     }
 
     fn stop_self(name: &str) -> Result<()> {
-        let pid = Pid::this();
         info!("stopping process `{}`", name);
 
-        kill(pid, Signal::SIGSTOP).map_err(|e| Error::Nix {
+        kill(Pid::this(), Signal::SIGSTOP).map_err(|e| Error::Nix {
             msg: "kill",
             src: e,
         })?;
 
         info!("process `{}` resumed", name);
         Ok(())
+    }
+
+    fn mount_entrypoint(&self, builder: &mut VoidBuilder, binary: &Path) -> Result<()> {
+        let binary = PathBuf::from(binary).canonicalize()?;
+        builder.mount(binary, "/entrypoint");
+
+        Ok(())
+    }
+
+    fn forward_mounts<'b>(
+        &self,
+        builder: &mut VoidBuilder,
+        environment: impl IntoIterator<Item = &'b Environment>,
+    ) {
+        for env in environment {
+            if let Environment::Filesystem {
+                host_path,
+                environment_path: _,
+            } = env
+            {
+                builder.mount(host_path, host_path);
+            }
+        }
     }
 
     fn prepare_env<'b>(
