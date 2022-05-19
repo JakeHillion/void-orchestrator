@@ -17,7 +17,7 @@ serde_json = "1.0"
 ipnetwork = "0.18"
 
 libc = "0.2.117"
-nix = "0.23.1"
+nix = "0.24.1"
 
 close_fds = "0.3.2"
 tempfile = "3.3"

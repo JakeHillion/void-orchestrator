@@ -205,9 +205,9 @@ impl<'a> Spawner<'a> {
         let mut cmsg_buf = nix::cmsg_space!([RawFd; MAX_FILE_DESCRIPTORS]);
 
         loop {
-            let msg = recvmsg(
+            let msg = recvmsg::<()>(
                 socket.as_raw_fd(),
-                &[],
+                &mut [],
                 Some(&mut cmsg_buf),
                 MsgFlags::empty(),
             )
