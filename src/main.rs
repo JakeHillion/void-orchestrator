@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::error;
 
 use clone_shim::{run, RunArgs};
 
@@ -32,6 +32,13 @@ fn main() {
                 .long("debug")
                 .short('d')
                 .help("Stop each spawned application process so that it can be attached to.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::new("daemon")
+                .long("daemon")
+                .short('D')
+                .help("Detach the shim from all child processes and exit immediately.")
                 .takes_value(false),
         )
         .arg(
@@ -69,15 +76,13 @@ fn main() {
         let args = RunArgs {
             spec: matches.value_of("spec").map(Path::new),
             debug: matches.is_present("debug"),
+            daemon: matches.is_present("daemon"),
             binary,
             binary_args,
         };
 
         match run(&args) {
-            Ok(_) => {
-                info!("launched successfully");
-                exitcode::OK
-            }
+            Ok(_) => exitcode::OK,
             Err(e) => {
                 error!("error: {}", e);
                 -1

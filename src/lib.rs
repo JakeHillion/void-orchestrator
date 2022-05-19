@@ -17,17 +17,19 @@ use std::path::Path;
 
 use nix::fcntl::OFlag;
 use nix::sys::socket;
-use nix::unistd;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::unistd::{self, Pid};
 
 pub struct RunArgs<'a> {
     pub spec: Option<&'a Path>,
     pub debug: bool,
+    pub daemon: bool,
 
     pub binary: &'a Path,
     pub binary_args: Vec<&'a str>,
 }
 
-pub fn run(args: &RunArgs) -> Result<()> {
+pub fn run(args: &RunArgs) -> Result<i32> {
     // parse the specification
     let spec: Specification = if let Some(m) = args.spec {
         if m.extension().map(|e| e == "json") == Some(true) {
@@ -62,7 +64,41 @@ pub fn run(args: &RunArgs) -> Result<()> {
     }
     .spawn()?;
 
-    Ok(())
+    if args.daemon {
+        return Ok(exitcode::OK);
+    }
+
+    info!("spawned successfully, awaiting children exiting...");
+    let mut exit_code = exitcode::OK;
+
+    loop {
+        let status = match waitpid(Some(Pid::from_raw(-1)), Some(WaitPidFlag::WEXITED)) {
+            Ok(v) => Ok(v),
+            Err(nix::Error::ECHILD) => {
+                info!("all child processes have exited, exiting...");
+                break;
+            }
+            Err(e) => Err(Error::Nix {
+                msg: "waitpid",
+                src: e,
+            }),
+        }?;
+
+        match status {
+            WaitStatus::Exited(pid, code) => {
+                if code != exitcode::OK {
+                    exit_code = code;
+                }
+                debug!("child {} exited with code {}", pid, code);
+            }
+            WaitStatus::Signaled(pid, sig, _coredump) => {
+                debug!("child {} was terminated with signal {}", pid, sig);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    Ok(exit_code)
 }
 
 fn create_pipes(names: Vec<&str>) -> Result<HashMap<String, PipePair>> {
