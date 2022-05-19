@@ -101,6 +101,7 @@ impl<'a> Spawner<'a> {
                     let mut builder = VoidBuilder::new();
                     self.mount_entrypoint(&mut builder, self.binary)?;
                     self.forward_mounts(&mut builder, &entrypoint.environment, &entrypoint.args);
+                    self.forward_files(&mut builder, &entrypoint.args);
 
                     let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&pipe);
@@ -127,6 +128,7 @@ impl<'a> Spawner<'a> {
                     let mut builder = VoidBuilder::new();
                     self.mount_entrypoint(&mut builder, self.binary)?;
                     self.forward_mounts(&mut builder, &entrypoint.environment, &entrypoint.args);
+                    self.forward_files(&mut builder, &entrypoint.args);
 
                     let socket = self.sockets.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&socket);
@@ -307,6 +309,18 @@ impl<'a> Spawner<'a> {
         for arg in arguments {
             if let Arg::File(host_path) = arg {
                 builder.mount(host_path, host_path);
+            }
+        }
+    }
+
+    fn forward_files<'b>(
+        &self,
+        builder: &mut VoidBuilder,
+        arguments: impl IntoIterator<Item = &'b Arg>,
+    ) {
+        for arg in arguments {
+            if let Arg::FileSocket(socket) = arg {
+                builder.keep_fd(self.sockets.get(socket.get_name()).unwrap().write_ref());
             }
         }
     }

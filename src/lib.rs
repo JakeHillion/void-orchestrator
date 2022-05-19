@@ -199,4 +199,8 @@ impl SocketPair {
         // SAFETY: valid new fd as dup(2) returned successfully
         Ok(unsafe { File::from_raw_fd(dup_fd) })
     }
+
+    fn write_ref(&self) -> &File {
+        &self.write
+    }
 }

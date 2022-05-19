@@ -99,6 +99,15 @@ pub enum FileSocket {
     Tx(String),
 }
 
+impl FileSocket {
+    pub fn get_name(&self) -> &str {
+        match self {
+            FileSocket::Rx(n) => n,
+            FileSocket::Tx(n) => n,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub enum Environment {
     Filesystem {
