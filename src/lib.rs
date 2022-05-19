@@ -17,8 +17,8 @@ use std::path::Path;
 
 use nix::fcntl::OFlag;
 use nix::sys::socket;
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{self, Pid};
+use nix::sys::wait::{waitid, Id, WaitPidFlag, WaitStatus};
+use nix::unistd;
 
 pub struct RunArgs<'a> {
     pub spec: Option<&'a Path>,
@@ -72,7 +72,7 @@ pub fn run(args: &RunArgs) -> Result<i32> {
     let mut exit_code = exitcode::OK;
 
     loop {
-        let status = match waitpid(Some(Pid::from_raw(-1)), Some(WaitPidFlag::WEXITED)) {
+        let status = match waitid(Id::All, WaitPidFlag::WEXITED) {
             Ok(v) => Ok(v),
             Err(nix::Error::ECHILD) => {
                 info!("all child processes have exited, exiting...");
