@@ -2,6 +2,16 @@
 
 ## Running the examples
 
+### examples/fib
+
+The fib example performs fibonacci trivially on a fixed number. It is the most basic example of a process that requires no privilege, excluding `Stdout` to print the result.
+
+To run this example:
+
+    cargo build
+    cargo build --example fib
+    target/debug/clone-shim -s examples/fib/spec.json target/debug/examples/fib
+
 ### examples/basic
 
 The basic example instructs the shim to spawn two processes, each of which writes "hello from main{1,2}!" to stdout.
