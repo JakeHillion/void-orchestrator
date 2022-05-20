@@ -42,6 +42,18 @@ fn main() {
                 .takes_value(false),
         )
         .arg(
+            Arg::new("stdout")
+                .long("stdout")
+                .help("Allow all spawned processes access to stdout (useful for debugging).")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::new("stderr")
+                .long("stderr")
+                .help("Allow all spawned processes access to stderr (useful for debugging).")
+                .takes_value(false),
+        )
+        .arg(
             Arg::new("binary")
                 .index(1)
                 .help("Binary and arguments to launch with the shim")
@@ -77,6 +89,10 @@ fn main() {
             spec: matches.value_of("spec").map(Path::new),
             debug: matches.is_present("debug"),
             daemon: matches.is_present("daemon"),
+
+            stdout: matches.is_present("stdout"),
+            stderr: matches.is_present("stderr"),
+
             binary,
             binary_args,
         };

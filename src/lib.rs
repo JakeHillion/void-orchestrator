@@ -8,7 +8,7 @@ mod void;
 
 use error::{Error, Result};
 use spawner::Spawner;
-use specification::Specification;
+use specification::{Environment, Specification};
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -25,13 +25,16 @@ pub struct RunArgs<'a> {
     pub debug: bool,
     pub daemon: bool,
 
+    pub stdout: bool,
+    pub stderr: bool,
+
     pub binary: &'a Path,
     pub binary_args: Vec<&'a str>,
 }
 
 pub fn run(args: &RunArgs) -> Result<i32> {
     // parse the specification
-    let spec: Specification = if let Some(m) = args.spec {
+    let mut spec: Specification = if let Some(m) = args.spec {
         if m.extension().map(|e| e == "json") == Some(true) {
             let f = std::fs::File::open(m)?;
             Ok(serde_json::from_reader(f)?)
@@ -44,6 +47,20 @@ pub fn run(args: &RunArgs) -> Result<i32> {
 
     debug!("specification read: {:?}", &spec);
     spec.validate()?;
+
+    if args.stdout {
+        debug!("forwarding stdout");
+        for entrypoint in &mut spec.entrypoints.values_mut() {
+            entrypoint.environment.insert(Environment::Stdout);
+        }
+    }
+
+    if args.stderr {
+        debug!("forwarding stderr");
+        for entrypoint in &mut spec.entrypoints.values_mut() {
+            entrypoint.environment.insert(Environment::Stderr);
+        }
+    }
 
     // create all the pipes
     let (pipes, _) = spec.pipes();

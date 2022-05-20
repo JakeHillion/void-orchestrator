@@ -6,7 +6,7 @@ use crate::{Error, Result};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt;
-use std::fs;
+use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use nix::fcntl::{FcntlArg, FdFlag};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sys::signal::{signal, SigHandler, Signal};
-use nix::unistd::{close, getgid, getuid, pivot_root, sethostname, Gid, Pid, Uid};
+use nix::unistd::{close, dup2, getgid, getuid, pivot_root, sethostname, Gid, Pid, Uid};
 
 use close_fds::CloseFdsBuilder;
 
@@ -390,6 +390,26 @@ impl VoidBuilder {
 
         unsafe {
             closer.closefrom(3);
+        }
+
+        // overwrite stdin/stdout/stderr without closing
+        {
+            let mut nullfd: Option<File> = None;
+            for stdfd in &[0, 1, 2] {
+                if !keep.contains(stdfd) {
+                    let fd = nullfd
+                        .take()
+                        .map(Ok)
+                        .unwrap_or_else(|| File::open("/dev/null"))?;
+
+                    dup2(fd.as_raw_fd(), *stdfd).map_err(|e| Error::Nix {
+                        msg: "dup2",
+                        src: e,
+                    })?;
+
+                    nullfd = Some(fd);
+                }
+            }
         }
 
         for fd in keep.as_ref() {

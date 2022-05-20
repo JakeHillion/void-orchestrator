@@ -119,6 +119,10 @@ pub enum Environment {
     DomainName(String),
 
     Procfs,
+
+    Stdin,
+    Stdout,
+    Stderr,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

@@ -349,6 +349,16 @@ impl<'a> Spawner<'a> {
                 Environment::Procfs => {
                     builder.mount("/proc", "/proc").remount_proc();
                 }
+
+                Environment::Stdin => {
+                    builder.keep_fd(&0);
+                }
+                Environment::Stdout => {
+                    builder.keep_fd(&1);
+                }
+                Environment::Stderr => {
+                    builder.keep_fd(&2);
+                }
             }
         }
     }
