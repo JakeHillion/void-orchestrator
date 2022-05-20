@@ -1,0 +1,12 @@
+{
+    "entrypoints": {
+        "main1": {
+            "args": [
+                "BinaryName"
+            ],
+            "environment": [
+                "Stdout"
+            ]
+        }
+    }
+}

@@ -98,7 +98,7 @@ fn main() {
         };
 
         match run(&args) {
-            Ok(_) => exitcode::OK,
+            Ok(code) => code,
             Err(e) => {
                 error!("error: {}", e);
                 -1
