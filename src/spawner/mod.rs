@@ -99,14 +99,10 @@ impl<'a> Spawner<'a> {
 
                 Trigger::Pipe(s) => {
                     let mut builder = VoidBuilder::new();
-                    self.mount_entrypoint(&mut builder, self.binary)?;
-                    self.forward_mounts(&mut builder, &entrypoint.environment, &entrypoint.args);
-                    self.forward_files(&mut builder, &entrypoint.args);
+                    self.prepare_spawner(&mut builder, &entrypoint.environment, &entrypoint.args)?;
 
                     let pipe = self.pipes.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&pipe);
-
-                    builder.mount("/proc", "/proc").remount_proc();
 
                     let closure = || match self.pipe_trigger(pipe, entrypoint, name) {
                         Ok(()) => exitcode::OK,
@@ -126,14 +122,10 @@ impl<'a> Spawner<'a> {
 
                 Trigger::FileSocket(s) => {
                     let mut builder = VoidBuilder::new();
-                    self.mount_entrypoint(&mut builder, self.binary)?;
-                    self.forward_mounts(&mut builder, &entrypoint.environment, &entrypoint.args);
-                    self.forward_files(&mut builder, &entrypoint.args);
+                    self.prepare_spawner(&mut builder, &entrypoint.environment, &entrypoint.args)?;
 
                     let socket = self.sockets.get_mut(s).unwrap().take_read()?;
                     builder.keep_fd(&socket);
-
-                    builder.mount("/proc", "/proc").remount_proc();
 
                     let closure = || match self.file_socket_trigger(socket, entrypoint, name) {
                         Ok(()) => exitcode::OK,
@@ -323,6 +315,20 @@ impl<'a> Spawner<'a> {
                 builder.keep_fd(self.sockets.get(socket.get_name()).unwrap().write_ref());
             }
         }
+    }
+
+    fn prepare_spawner<'b>(
+        &self,
+        builder: &mut VoidBuilder,
+        environment: impl IntoIterator<Item = &'b Environment>,
+        args: impl IntoIterator<Item = &'b Arg> + Copy,
+    ) -> Result<()> {
+        self.mount_entrypoint(builder, self.binary)?;
+        self.forward_mounts(builder, environment, args);
+        self.forward_files(builder, args);
+        builder.mount("/proc", "/proc").remount_proc();
+
+        Ok(())
     }
 
     fn prepare_env<'b>(
