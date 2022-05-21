@@ -328,6 +328,9 @@ impl<'a> Spawner<'a> {
         self.forward_files(builder, args);
         builder.mount("/proc", "/proc").remount_proc();
 
+        builder.keep_fd(&1);
+        builder.keep_fd(&2);
+
         Ok(())
     }
 
