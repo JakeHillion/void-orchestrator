@@ -111,6 +111,7 @@ dependencies = [
  "criterion",
  "env_logger",
  "exitcode",
+ "httparse",
  "ipnetwork",
  "libc",
  "log",
@@ -288,6 +289,12 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "httparse"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "496ce29bb5a52785b44e0f7ca2847ae0bb839c9bd28f69acac9b99d461c0c04c"
 
 [[package]]
 name = "humantime"

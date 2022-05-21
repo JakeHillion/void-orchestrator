@@ -25,6 +25,9 @@ tempfile = "3.3"
 [dev-dependencies]
 criterion = "0.3"
 
+# examples/tls
+httparse = "1"
+
 [[bench]]
 name = "clone3"
 harness = false
