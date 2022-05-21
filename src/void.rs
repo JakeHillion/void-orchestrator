@@ -135,14 +135,6 @@ impl VoidBuilder {
         }
 
         debug!("cloned child: {}", child);
-
-        // Leak the child function's resources in the parent process.
-        // This avoids closing files that have been "moved" into the child.
-        // It is also an over-approximation, and may cause actual memory leaks.
-        // As the spawning process is normally short lived, this shouldn't
-        // be a problem.
-        std::mem::forget(child_fn);
-
         Ok(VoidHandle { pid: child })
     }
 
