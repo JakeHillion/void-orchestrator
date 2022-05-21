@@ -106,7 +106,9 @@ impl VoidBuilder {
                 debug!("voiding user namespace...");
                 self.void_user_namespace(parent_uid, parent_gid)?; // first to regain full capabilities
 
-                debug!("voiding file descriptors...");
+                debug!("voiding mount namespace...");
+                self.void_mount_namespace()?;
+                debug!("voiding file descriptors..."); // occur after mount to unmount /dev/null
                 self.void_file_descriptors()?;
 
                 debug!("voiding ipc namespace...");
@@ -117,8 +119,6 @@ impl VoidBuilder {
                 self.void_network_namespace()?;
                 debug!("voiding pid namespace...");
                 self.void_pid_namespace()?;
-                debug!("voiding mount namespace...");
-                self.void_mount_namespace()?;
                 debug!("voiding cgroup namespace...");
                 self.void_cgroup_namespace()?;
 
@@ -255,7 +255,18 @@ impl VoidBuilder {
         std::env::set_current_dir(&new_root)?;
 
         trace!("creating bind mounts before unmounting");
-        for (src, dst) in &self.mounts {
+
+        let standard_dev_null = if self.mounts.contains_key(&PathBuf::from("/dev/null")) {
+            None
+        } else {
+            Some((PathBuf::from("/dev/null"), PathBuf::from("/dev/null")))
+        };
+
+        for (src, dst) in self
+            .mounts
+            .iter()
+            .chain(standard_dev_null.as_ref().map(|(x, y)| (x, y)))
+        {
             let mut src = old_root.join(src.strip_prefix("/").unwrap_or(src));
             let dst = new_root.join(dst.strip_prefix("/").unwrap_or(dst));
 
@@ -397,6 +408,8 @@ impl VoidBuilder {
             let mut nullfd: Option<File> = None;
             for stdfd in &[0, 1, 2] {
                 if !keep.contains(stdfd) {
+                    trace!("voiding stdfd {}", stdfd);
+
                     let fd = nullfd
                         .take()
                         .map(Ok)
@@ -410,6 +423,15 @@ impl VoidBuilder {
                     nullfd = Some(fd);
                 }
             }
+        }
+
+        if !self.mounts.contains_key(&PathBuf::from("/dev/null")) {
+            debug!("unmount /dev/null after voiding file descriptors");
+
+            umount2("/dev/null", MntFlags::MNT_DETACH).map_err(|e| Error::Nix {
+                msg: "umount2",
+                src: e,
+            })?;
         }
 
         for fd in keep.as_ref() {

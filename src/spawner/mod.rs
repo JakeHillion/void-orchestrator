@@ -326,6 +326,8 @@ impl<'a> Spawner<'a> {
         self.mount_entrypoint(builder, self.binary)?;
         self.forward_mounts(builder, environment, args);
         self.forward_files(builder, args);
+
+        builder.mount("/dev/null", "/dev/null");
         builder.mount("/proc", "/proc").remount_proc();
 
         builder.keep_fd(&1);
