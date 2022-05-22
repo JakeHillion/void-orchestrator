@@ -5,8 +5,7 @@ fn main() {
 }
 
 fn fib(i: u64) -> u64 {
-    let mut a = 0;
-    let mut b = 1;
+    let (mut a, mut b) = (0, 1);
 
     for _ in 0..i {
         (a, b) = (b, a + b);
