@@ -1,9 +1,6 @@
 {
     "entrypoints": {
         "fib": {
-            "args": [
-                "BinaryName"
-            ],
             "environment": [
                 "Stdout",
                 {
