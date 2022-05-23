@@ -4,11 +4,7 @@ use std::fs::File;
 use std::net::{TcpListener, TcpStream};
 
 fn main() {
-    let mut args = std::env::args();
-
-    let entrypoint = args.next();
-
-    match entrypoint {
+    match std::env::args().next() {
         Some(s) => match s.as_str() {
             "connection_listener" => connection_listener_entrypoint(),
             "http_handler" => http_handler_entrypoint(),
