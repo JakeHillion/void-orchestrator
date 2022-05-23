@@ -2,7 +2,6 @@
     "entrypoints": {
         "connection_listener": {
             "args": [
-                "BinaryName",
                 "Entrypoint",
                 {
                     "FileSocket": {
@@ -41,7 +40,6 @@
                 "FileSocket": "http"
             },
             "args": [
-                "BinaryName",
                 "Entrypoint",
                 "Trigger"
             ],

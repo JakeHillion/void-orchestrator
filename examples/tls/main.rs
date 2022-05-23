@@ -6,7 +6,6 @@ use std::net::{TcpListener, TcpStream};
 fn main() {
     let mut args = std::env::args();
 
-    let _bin = args.next();
     let entrypoint = args.next();
 
     match entrypoint {
@@ -27,7 +26,6 @@ fn connection_listener_entrypoint() {
     // argument parsing
     let mut args = std::env::args();
 
-    let _bin = args.next();
     let _entrypoint = args.next();
 
     let http_handler_trigger = args.next();
@@ -95,7 +93,6 @@ fn http_handler_entrypoint() {
     // argument parsing
     let mut args = std::env::args();
 
-    let _bin = args.next();
     let _entrypoint = args.next();
 
     let stream = args.next();
