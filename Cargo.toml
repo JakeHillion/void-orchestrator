@@ -24,9 +24,12 @@ tempfile = "3.3"
 
 [dev-dependencies]
 criterion = "0.3"
+anyhow = "1"
 
 # examples/tls
 httparse = "1"
+rustls = "0.20"
+rustls-pemfile = "1"
 
 [[bench]]
 name = "clone3"
