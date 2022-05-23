@@ -1,9 +1,9 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
-pub(super) fn handler(mut stream: TcpStream) -> i32 {
+pub(super) fn handler(mut stream: UnixStream) -> i32 {
     println!("entered http handler");
 
     let mut buf = Vec::new();

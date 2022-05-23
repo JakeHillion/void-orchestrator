@@ -3,6 +3,7 @@ mod tls;
 
 use std::fs::File;
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::net::UnixStream;
 
 fn main() {
     match std::env::args().next() {
@@ -129,7 +130,7 @@ fn tls_handler_entrypoint() {
     ));
 }
 
-fn http_handler(trigger_socket: &File, stream: TcpStream) {
+fn http_handler(trigger_socket: &File, stream: UnixStream) {
     // imports
     use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
     use std::os::unix::io::AsRawFd;
@@ -162,7 +163,7 @@ fn http_handler_entrypoint() {
         .expect("request stream required")
         .parse()
         .expect("request stream should be a file descriptor");
-    let stream = unsafe { TcpStream::from_raw_fd(stream) };
+    let stream = unsafe { UnixStream::from_raw_fd(stream) };
 
     std::process::exit(http::handler(stream));
 }
