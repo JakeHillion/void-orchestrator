@@ -32,6 +32,16 @@ To run this example:
     cargo build --example pipes
     target/debug/clone-shim -s examples/pipes/spec.json target/debug/examples/pipes
 
+### examples/pipes
+
+The pipes example shows some of the power of the shim by using pipes. The process "pipe_sender" sends two messages down a pipe that it's given by the shim. These two messages each spawn a completely isolated process, "pipe_receiver", that receives that message.
+
+To run this example:
+
+    cargo build
+    cargo build --example tls
+    target/debug/clone-shim -s examples/tls/spec.json target/debug/examples/tls
+
 ## Debugging the shim
 
 The shim can be debugged as with most processes, but it is exceptionally forky. Breaking before a clone in `rust-gdb` then running `set follow-fork-mode child` is often necessary. The best approach is to go in with a plan of attack.
