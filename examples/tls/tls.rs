@@ -56,6 +56,9 @@ pub(crate) fn handler(
         }
     }
 
+    tls_conn.send_close_notify();
+    tls_conn.write_tls(&mut stream).unwrap();
+
     exitcode::OK
 }
 
