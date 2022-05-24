@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 
 use nix::sys::signal::{kill, Signal};
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
-use nix::unistd::{self, Pid};
+use nix::sys::wait::{waitid, Id, WaitPidFlag, WaitStatus};
+use nix::unistd::{self, fork, ForkResult, Pid};
 use nix::Error as NixError;
 
 const BUFFER_SIZE: usize = 1024;
@@ -150,6 +151,9 @@ impl<'a> Spawner<'a> {
     }
 
     fn pipe_trigger(&self, mut pipe: File, spec: &Entrypoint, name: &str) -> Result<()> {
+        // put the work in a forked process that can handle signals
+        Self::fork_for_trigger()?;
+
         let mut buf = [0_u8; BUFFER_SIZE];
         loop {
             let read_bytes = match pipe.read(&mut buf) {
@@ -206,6 +210,9 @@ impl<'a> Spawner<'a> {
     }
 
     fn file_socket_trigger(&self, socket: File, spec: &Entrypoint, name: &str) -> Result<()> {
+        // put the work in a forked process that can handle signals
+        Self::fork_for_trigger()?;
+
         let mut cmsg_buf = nix::cmsg_space!([RawFd; MAX_FILE_DESCRIPTORS]);
 
         loop {
@@ -279,6 +286,35 @@ impl<'a> Spawner<'a> {
                 }
             }
         }
+    }
+
+    fn fork_for_trigger() -> Result<()> {
+        // SAFETY: only unsafe in a multi-threaded program
+        if let ForkResult::Parent { child: _pid } = unsafe { fork() }.map_err(|e| Error::Nix {
+            msg: "fork",
+            src: e,
+        })? {
+            let status = waitid(Id::All, WaitPidFlag::WEXITED).map_err(|e| Error::Nix {
+                msg: "waitpid",
+                src: e,
+            })?;
+
+            match status {
+                WaitStatus::Exited(_pid, code) => {
+                    std::process::exit(code);
+                }
+                WaitStatus::Signaled(pid, sig, _coredump) => {
+                    debug!(
+                        "trigger: forked child {} was terminated with signal {}",
+                        pid, sig
+                    );
+                    std::process::exit(-1);
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        Ok(())
     }
 
     fn stop_self(name: &str) -> Result<()> {
