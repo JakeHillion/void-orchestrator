@@ -7,11 +7,15 @@ pub(super) fn handler(mut stream: UnixStream) -> i32 {
     println!("entered http handler");
 
     let mut buf = Vec::new();
-    loop {
-        let buf_len = buf.len();
-        buf.resize_with(buf_len + 1024, Default::default);
+    let mut buf_len = 0;
 
-        if stream.read(&mut buf[buf_len..]).unwrap() == 0 {
+    loop {
+        buf.resize_with(buf_len + 4096, Default::default);
+
+        let read_bytes = stream.read(&mut buf[buf_len..]).unwrap();
+        buf_len += read_bytes;
+
+        if read_bytes == 0 {
             break;
         }
 
