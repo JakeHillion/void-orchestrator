@@ -1,4 +1,5 @@
 mod http;
+mod listener;
 mod tls;
 
 use std::fs::File;
@@ -41,29 +42,8 @@ fn connection_listener_entrypoint() {
         .expect("tcp listener should be a file descriptor");
     let tcp_listener = unsafe { TcpListener::from_raw_fd(tcp_listener) };
 
-    // actual function body
-    fn connection_listener(tls_handler_trigger: File, tcp_listener: TcpListener) -> i32 {
-        println!("connection_listener entered");
-
-        // handle incoming connections
-        for stream in tcp_listener.incoming() {
-            let stream = match stream {
-                Ok(s) => s,
-                Err(e) => {
-                    println!("connection listener: error: {}", e);
-                    return 1;
-                }
-            };
-
-            println!("received a new connection");
-            tls_handler(&tls_handler_trigger, stream);
-        }
-
-        exitcode::OK
-    }
-
     // run function
-    std::process::exit(connection_listener(tls_handler_trigger, tcp_listener));
+    std::process::exit(listener::handler(tls_handler_trigger, tcp_listener));
 }
 
 fn tls_handler(trigger_socket: &File, stream: TcpStream) {

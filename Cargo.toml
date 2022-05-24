@@ -30,6 +30,7 @@ anyhow = "1"
 httparse = "1"
 rustls = "0.20"
 rustls-pemfile = "1"
+lazy_static = "1"
 
 [[bench]]
 name = "clone3"

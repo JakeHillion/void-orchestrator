@@ -132,6 +132,7 @@ dependencies = [
  "exitcode",
  "httparse",
  "ipnetwork",
+ "lazy_static",
  "libc",
  "log",
  "nix",
