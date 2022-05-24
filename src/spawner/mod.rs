@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use nix::sys::signal::{kill, Signal};
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::unistd::{self, Pid};
+use nix::Error as NixError;
 
 const BUFFER_SIZE: usize = 1024;
 const MAX_FILE_DESCRIPTORS: usize = 16;
@@ -151,7 +152,16 @@ impl<'a> Spawner<'a> {
     fn pipe_trigger(&self, mut pipe: File, spec: &Entrypoint, name: &str) -> Result<()> {
         let mut buf = [0_u8; BUFFER_SIZE];
         loop {
-            let read_bytes = pipe.read(&mut buf)?;
+            let read_bytes = match pipe.read(&mut buf) {
+                Ok(n) => Ok(n),
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        return Ok(());
+                    }
+
+                    Err(e)
+                }
+            }?;
             if read_bytes == 0 {
                 return Ok(());
             }
@@ -199,16 +209,24 @@ impl<'a> Spawner<'a> {
         let mut cmsg_buf = nix::cmsg_space!([RawFd; MAX_FILE_DESCRIPTORS]);
 
         loop {
-            let msg = recvmsg::<()>(
+            let msg = match recvmsg::<()>(
                 socket.as_raw_fd(),
                 &mut [],
                 Some(&mut cmsg_buf),
                 MsgFlags::empty(),
-            )
-            .map_err(|e| Error::Nix {
-                msg: "recvmsg",
-                src: e,
-            })?;
+            ) {
+                Ok(m) => Ok(m),
+                Err(e) => {
+                    if e == NixError::EINTR {
+                        return Ok(());
+                    }
+
+                    Err(Error::Nix {
+                        msg: "recvmsg",
+                        src: e,
+                    })
+                }
+            }?;
 
             debug!("triggering from socket recvmsg");
 
