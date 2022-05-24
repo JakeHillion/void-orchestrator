@@ -1,5 +1,5 @@
-use std::fs;
-use std::io::{Read, Write};
+use std::fs::OpenOptions;
+use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -29,33 +29,53 @@ pub(super) fn handler(mut stream: UnixStream) -> i32 {
             req.path
         };
 
-        let status_line = if filename.is_some() {
-            "HTTP/1.1 200 OK"
-        } else {
-            "HTTP/1.1 404 NOT FOUND"
-        };
+        if let Some(filename) = filename {
+            if try_serve_file(&mut stream, filename).unwrap() {
+                return exitcode::OK;
+            }
+        }
 
-        let contents = if let Some(filename) = filename {
-            fs::read_to_string(
-                PathBuf::from("/var/www/html/")
-                    .join(filename.strip_prefix('/').unwrap_or(filename)),
-            )
-            .unwrap()
-        } else {
-            "content not found\n".to_string()
-        };
+        let status_line = "HTTP/1.1 404 NOT FOUND";
+        let contents = "file not found\n";
 
-        let response_header = format!(
-            "{}\r\nContent-Length: {}\r\n\r\n",
+        let response = format!(
+            "{}\r\nContent-Length: {}\r\n\r\n{}",
             status_line,
             contents.len(),
+            contents
         );
 
-        stream.write_all(response_header.as_bytes()).unwrap();
-        stream.write_all(contents.as_bytes()).unwrap();
-
+        stream.write_all(response.as_bytes()).unwrap();
         break;
     }
 
     exitcode::OK
+}
+
+fn try_serve_file(stream: &mut impl io::Write, filename: &str) -> io::Result<bool> {
+    let mut fd = match OpenOptions::new()
+        .read(true)
+        .open(PathBuf::from("/var/www/html/").join(filename.strip_prefix('/').unwrap_or(filename)))
+    {
+        Ok(fd) => fd,
+        Err(e) => {
+            if e.kind() == ErrorKind::NotFound {
+                return Ok(false);
+            }
+            return Err(e);
+        }
+    };
+
+    let status_line = "HTTP/1.1 200 OK";
+
+    let response_header = format!(
+        "{}\r\nContent-Length: {}\r\n\r\n",
+        status_line,
+        fd.metadata()?.len(),
+    );
+
+    stream.write_all(response_header.as_bytes())?;
+    io::copy(&mut fd, stream)?;
+
+    Ok(true)
 }
