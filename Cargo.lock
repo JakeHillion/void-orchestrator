@@ -121,30 +121,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clone-shim"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap 3.1.15",
- "close_fds",
- "criterion",
- "env_logger",
- "exitcode",
- "httparse",
- "ipnetwork",
- "lazy_static",
- "libc",
- "log",
- "nix",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
 name = "close_fds"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -810,6 +786,30 @@ name = "untrusted"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
+
+[[package]]
+name = "void-orchestrator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 3.1.15",
+ "close_fds",
+ "criterion",
+ "env_logger",
+ "exitcode",
+ "httparse",
+ "ipnetwork",
+ "lazy_static",
+ "libc",
+ "log",
+ "nix",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
 
 [[package]]
 name = "walkdir"
